@@ -35,6 +35,12 @@ impl Database {
     async fn initialize(&self) -> Result<()> {
         self.conn
             .call(|conn| {
+                // Enable WAL mode for better concurrent read/write performance
+                conn.pragma_update(None, "journal_mode", "WAL")?;
+
+                // Enable foreign key constraints (must be set per-connection)
+                conn.pragma_update(None, "foreign_keys", "ON")?;
+
                 conn.execute_batch(
                     r#"
                     -- Pending connection codes (expire after 10 minutes)
@@ -63,9 +69,6 @@ impl Database {
 
                     -- Index for fast guild lookups
                     CREATE INDEX IF NOT EXISTS idx_servers_guild ON servers(guild_id);
-
-                    -- Enable foreign keys
-                    PRAGMA foreign_keys = ON;
                     "#,
                 )?;
                 Ok(())
@@ -95,8 +98,10 @@ impl Database {
         let result = self
             .conn
             .call(move |conn| {
+                let tx = conn.transaction()?;
+
                 // Check if server name already exists in this guild
-                let exists: bool = conn.query_row(
+                let exists: bool = tx.query_row(
                     "SELECT EXISTS(SELECT 1 FROM servers WHERE guild_id = ?1 AND name = ?2)",
                     params![guild_id, &server_name],
                     |row| row.get(0),
@@ -106,11 +111,12 @@ impl Database {
                     return Ok(Err(DbError::ServerNameConflict));
                 }
 
-                conn.execute(
+                tx.execute(
                     "INSERT INTO pending_links (code, guild_id, server_name, created_at) VALUES (?1, ?2, ?3, ?4)",
                     params![&code, guild_id, &server_name, now],
                 )?;
 
+                tx.commit()?;
                 Ok(Ok(PendingLink {
                     code,
                     guild_id,
@@ -159,7 +165,9 @@ impl Database {
         let result = self
             .conn
             .call(move |conn| {
-                let link: Option<PendingLink> = conn
+                let tx = conn.transaction()?;
+
+                let link: Option<PendingLink> = tx
                     .query_row(
                         "SELECT code, guild_id, server_name, created_at FROM pending_links WHERE code = ?1",
                         params![&code],
@@ -180,11 +188,13 @@ impl Database {
                 };
 
                 if link.is_expired(now) {
-                    conn.execute("DELETE FROM pending_links WHERE code = ?1", params![&code])?;
+                    tx.execute("DELETE FROM pending_links WHERE code = ?1", params![&code])?;
+                    tx.commit()?;
                     return Ok(Err(DbError::PendingLinkNotFound));
                 }
 
-                conn.execute("DELETE FROM pending_links WHERE code = ?1", params![&code])?;
+                tx.execute("DELETE FROM pending_links WHERE code = ?1", params![&code])?;
+                tx.commit()?;
                 Ok(Ok(link))
             })
             .await??;
@@ -389,8 +399,10 @@ impl Database {
 
         self.conn
             .call(move |conn| {
+                let tx = conn.transaction()?;
+
                 // Verify the server exists
-                let exists: bool = conn.query_row(
+                let exists: bool = tx.query_row(
                     "SELECT EXISTS(SELECT 1 FROM servers WHERE api_key_hash = ?1)",
                     params![&api_key_hash],
                     |row| row.get(0),
@@ -400,11 +412,12 @@ impl Database {
                     return Ok(Err(DbError::InvalidApiKey));
                 }
 
-                conn.execute(
+                tx.execute(
                     "INSERT OR REPLACE INTO online_players (api_key_hash, player_name, joined_at) VALUES (?1, ?2, ?3)",
                     params![&api_key_hash, &player_name, now],
                 )?;
 
+                tx.commit()?;
                 Ok(Ok(()))
             })
             .await??;
@@ -421,8 +434,10 @@ impl Database {
 
         self.conn
             .call(move |conn| {
+                let tx = conn.transaction()?;
+
                 // Verify the server exists
-                let exists: bool = conn.query_row(
+                let exists: bool = tx.query_row(
                     "SELECT EXISTS(SELECT 1 FROM servers WHERE api_key_hash = ?1)",
                     params![&api_key_hash],
                     |row| row.get(0),
@@ -432,11 +447,12 @@ impl Database {
                     return Ok(Err(DbError::InvalidApiKey));
                 }
 
-                conn.execute(
+                tx.execute(
                     "DELETE FROM online_players WHERE api_key_hash = ?1 AND player_name = ?2",
                     params![&api_key_hash, &player_name],
                 )?;
 
+                tx.commit()?;
                 Ok(Ok(()))
             })
             .await??;
@@ -458,8 +474,10 @@ impl Database {
 
         self.conn
             .call(move |conn| {
+                let tx = conn.transaction()?;
+
                 // Verify the server exists
-                let exists: bool = conn.query_row(
+                let exists: bool = tx.query_row(
                     "SELECT EXISTS(SELECT 1 FROM servers WHERE api_key_hash = ?1)",
                     params![&api_key_hash],
                     |row| row.get(0),
@@ -470,19 +488,20 @@ impl Database {
                 }
 
                 // Delete all existing players for this server
-                conn.execute(
+                tx.execute(
                     "DELETE FROM online_players WHERE api_key_hash = ?1",
                     params![&api_key_hash],
                 )?;
 
                 // Insert all new players
                 for player in &players {
-                    conn.execute(
+                    tx.execute(
                         "INSERT INTO online_players (api_key_hash, player_name, joined_at) VALUES (?1, ?2, ?3)",
                         params![&api_key_hash, player, now],
                     )?;
                 }
 
+                tx.commit()?;
                 Ok(Ok(()))
             })
             .await??;
