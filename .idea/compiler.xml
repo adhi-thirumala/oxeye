@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="CompilerConfiguration">
+    <bytecodeTargetLevel>
+      <module name="oxeye-mod" target="25" />
+      <module name="oxeye-mod.client" target="21" />
+      <module name="oxeye-mod.main" target="21" />
+      <module name="oxeye-mod.test" target="21" />
+    </bytecodeTargetLevel>
+  </component>
+</project>

@@ -1,3 +1,14 @@
-fn main() {
-  println!("Hello, world!");
+mod helpers;
+mod routes;
+
+use axum::{
+  routing::{get, post},
+  Router,
+};
+
+
+
+#[tokio::main]
+async fn main() {
+
 }
