@@ -1,27 +1,29 @@
-mod helpers;
-mod routes;
-
-use axum::{http::StatusCode, routing::get, Router};
-use std::sync::Arc;
-
-pub(crate) struct AppState {
-    db: oxeye_db::Database,
-}
-
 #[tokio::main]
 async fn main() {
-    let state = Arc::new(AppState {
-        db: oxeye_db::Database::open("oxeye.db").await.unwrap(),
-    });
+    // Initialize tracing for structured logging
+    tracing_subscriber::fmt()
+        .with_target(false)
+        .compact()
+        .init();
 
-    let app = Router::new()
-        .route("/health", get(|| async { StatusCode::OK }))
-        .route("/connect", get(routes::connect))
-        .route("/join", get(routes::join))
-        .route("/leave", get(routes::leave))
-        .route("/sync", get(routes::sync))
-        .with_state(state);
+    tracing::info!("Starting Oxeye backend server...");
 
-    let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
+    // Load configuration from environment variables or use defaults
+    let config = oxeye_backend::config::Config::from_env();
+    tracing::info!(
+        "Configuration: port={}, db_path={}, body_limit={}KB, timeout={}s",
+        config.port,
+        config.database_path,
+        config.request_body_limit / 1024,
+        config.request_timeout.as_secs()
+    );
+
+    let db = oxeye_db::Database::open(&config.database_path).await.unwrap();
+    let app = oxeye_backend::create_app(db, config.request_body_limit, config.request_timeout);
+
+    let addr = format!("0.0.0.0:{}", config.port);
+    let listener = tokio::net::TcpListener::bind(&addr).await.unwrap();
+    tracing::info!("Server listening on {}", addr);
+
     axum::serve(listener, app).await.unwrap();
 }

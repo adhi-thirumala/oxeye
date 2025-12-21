@@ -10,6 +10,7 @@ use tokio_rusqlite::rusqlite::{OptionalExtension, params};
 use tracing::{debug, info};
 
 /// Database wrapper for all Oxeye operations.
+#[derive(Clone)]
 pub struct Database {
   conn: Connection,
 }
