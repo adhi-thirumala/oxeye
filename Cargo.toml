@@ -1,21 +1,22 @@
 [workspace]
 resolver = "2"
 members = [
-    "oxeye-bot",
     "oxeye-backend",
     "oxeye-db",
 ]
 
 [workspace.dependencies]
 # Web framework
-axum = "0.8.7"
+axum = "0.8.8"
+axum-macros = "0.5.0"
+axum-extra = { version = "0.12.3", features = ["typed-header"] }
+headers = "0.4.1"
 tokio = { version = "1.48.0", features = ["full"] }
 tower = "0.5.2"
 tower-http = { version = "0.6.8", features = ["cors", "trace"] }
 
 # Database
-rusqlite = { version = "0.37", features = ["bundled"] }
-tokio-rusqlite = "0.6"
+tokio-rusqlite = "0.7"
 oxeye-db = { path = "oxeye-db" }
 
 # Serialization
