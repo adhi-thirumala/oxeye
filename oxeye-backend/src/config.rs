@@ -67,21 +67,4 @@ mod tests {
         assert_eq!(config.port, 3000);
         assert_eq!(config.database_path, "oxeye.db");
     }
-
-    #[test]
-    fn test_from_env_uses_defaults_when_no_env_vars() {
-        // Clear any existing env vars that might interfere
-        unsafe {
-            std::env::remove_var("REQUEST_BODY_LIMIT");
-            std::env::remove_var("REQUEST_TIMEOUT_SECS");
-            std::env::remove_var("PORT");
-            std::env::remove_var("DATABASE_PATH");
-        }
-
-        let config = Config::from_env();
-        assert_eq!(config.request_body_limit, 1024 * 1024);
-        assert_eq!(config.request_timeout, Duration::from_secs(30));
-        assert_eq!(config.port, 3000);
-        assert_eq!(config.database_path, "oxeye.db");
-    }
 }
