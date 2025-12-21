@@ -1,4 +1,5 @@
 pub mod helpers;
+mod error;
 mod routes;
 mod validation;
 

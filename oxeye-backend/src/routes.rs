@@ -1,3 +1,4 @@
+use crate::error::AppError;
 use crate::helpers::now;
 use crate::validation;
 use crate::AppState;
@@ -39,21 +40,18 @@ pub(crate) struct SyncRequest {
 pub(crate) async fn connect(
     State(state): State<Arc<AppState>>,
     Json(payload): Json<ConnRequest>,
-) -> Result<impl IntoResponse, StatusCode> {
+) -> Result<impl IntoResponse, AppError> {
     // Validate code format
-    validation::validate_code(&payload.code).map_err(|_| StatusCode::BAD_REQUEST)?;
+    validation::validate_code(&payload.code)?;
 
     let pending_link = state
         .db
         .consume_pending_link(payload.code, now())
-        .await
-        .map_err(|e| match e {
-            oxeye_db::DbError::PendingLinkNotFound => StatusCode::NOT_FOUND,
-            oxeye_db::DbError::PendingLinkAlreadyUsed => StatusCode::CONFLICT,
-            _ => StatusCode::INTERNAL_SERVER_ERROR,
-        })?;
+        .await?;
+
     let api_key = crate::helpers::generate_api_key();
     let api_key_hash = crate::helpers::hash_api_key(&api_key);
+
     state
         .db
         .create_server(
@@ -61,11 +59,8 @@ pub(crate) async fn connect(
             pending_link.server_name,
             pending_link.guild_id,
         )
-        .await
-        .map_err(|e| match e {
-            oxeye_db::DbError::ServerNameConflict => StatusCode::CONFLICT,
-            _ => StatusCode::INTERNAL_SERVER_ERROR,
-        })?;
+        .await?;
+
     Ok((StatusCode::OK, Json(ConnResponse { api_key })))
 }
 
@@ -74,74 +69,55 @@ pub(crate) async fn join(
     State(state): State<Arc<AppState>>,
     TypedHeader(auth): TypedHeader<Authorization<Bearer>>,
     Json(payload): Json<TransitionRequest>,
-) -> StatusCode {
+) -> Result<impl IntoResponse, AppError> {
     // Validate player name
-    if let Err(_) = validation::validate_player_name(&payload.player) {
-        return StatusCode::BAD_REQUEST;
-    }
+    validation::validate_player_name(&payload.player)?;
 
     let api_key = auth.token().to_string();
     let api_key_hash = crate::helpers::hash_api_key(&api_key);
-    match state
+
+    state
         .db
         .player_join(api_key_hash, payload.player, now())
-        .await
-    {
-        Ok(_) => StatusCode::OK,
-        Err(e) => match e {
-            oxeye_db::DbError::InvalidApiKey => StatusCode::UNAUTHORIZED,
-            _ => StatusCode::INTERNAL_SERVER_ERROR,
-        },
-    }
+        .await?;
+
+    Ok(StatusCode::OK)
 }
 
 pub(crate) async fn leave(
     State(state): State<Arc<AppState>>,
     TypedHeader(auth): TypedHeader<Authorization<Bearer>>,
     Json(payload): Json<TransitionRequest>,
-) -> StatusCode {
+) -> Result<impl IntoResponse, AppError> {
     // Validate player name
-    if let Err(_) = validation::validate_player_name(&payload.player) {
-        return StatusCode::BAD_REQUEST;
-    }
+    validation::validate_player_name(&payload.player)?;
 
     let api_key = auth.token().to_string();
     let api_key_hash = crate::helpers::hash_api_key(&api_key);
-    match state
+
+    state
         .db
         .player_leave(api_key_hash, payload.player)
-        .await
-    {
-        Ok(_) => StatusCode::OK,
-        Err(e) => match e {
-            oxeye_db::DbError::InvalidApiKey => StatusCode::UNAUTHORIZED,
-            _ => StatusCode::INTERNAL_SERVER_ERROR,
-        },
-    }
-}
+        .await?;
 
+    Ok(StatusCode::OK)
+}
 
 pub(crate) async fn sync(
     State(state): State<Arc<AppState>>,
     TypedHeader(auth): TypedHeader<Authorization<Bearer>>,
     Json(payload): Json<SyncRequest>,
-) -> StatusCode {
+) -> Result<impl IntoResponse, AppError> {
     // Validate player list (size and individual names)
-    if let Err(_) = validation::validate_player_list(&payload.players) {
-        return StatusCode::BAD_REQUEST;
-    }
+    validation::validate_player_list(&payload.players)?;
 
     let api_key = auth.token().to_string();
     let api_key_hash = crate::helpers::hash_api_key(&api_key);
-    match state
+
+    state
         .db
         .sync_players(api_key_hash, payload.players, now())
-        .await
-    {
-        Ok(_) => StatusCode::OK,
-        Err(e) => match e {
-            oxeye_db::DbError::InvalidApiKey => StatusCode::UNAUTHORIZED,
-            _ => StatusCode::INTERNAL_SERVER_ERROR,
-        },
-    }
+        .await?;
+
+    Ok(StatusCode::OK)
 }
