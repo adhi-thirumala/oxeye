@@ -809,6 +809,69 @@ async fn test_sync_with_large_player_list() {
     assert_eq!(status, StatusCode::BAD_REQUEST);
 }
 
+#[tokio::test]
+async fn test_sync_with_oversized_payload() {
+    // GIVEN: A valid server exists
+    let db = setup_test_db().await;
+    let api_key = helpers::generate_api_key();
+    let api_key_hash = helpers::hash_api_key(&api_key);
+    let guild_id = 123456789u64;
+    let server_name = "TestServer".to_string();
+
+    db.create_server(api_key_hash, server_name, guild_id)
+        .await
+        .expect("Failed to create server");
+
+    let app = create_app(db);
+
+    // WHEN: Sending a request with massive player names (> 1MB total payload)
+    // Create player names that are each 10KB, with 150 of them = 1.5MB total
+    let huge_name = "A".repeat(10 * 1024); // 10KB per name
+    let players: Vec<String> = (0..150).map(|_| huge_name.clone()).collect(); // 1.5MB total
+
+    let (status, _body) = send_request(
+        app,
+        "POST",
+        "/sync",
+        Some(json!({ "players": players })),
+        Some(&api_key),
+    )
+    .await;
+
+    // THEN: Should return 413 Payload Too Large
+    assert_eq!(status, StatusCode::PAYLOAD_TOO_LARGE);
+}
+
+#[tokio::test]
+async fn test_join_with_oversized_player_name() {
+    // GIVEN: A valid server exists
+    let db = setup_test_db().await;
+    let api_key = helpers::generate_api_key();
+    let api_key_hash = helpers::hash_api_key(&api_key);
+    let guild_id = 123456789u64;
+    let server_name = "TestServer".to_string();
+
+    db.create_server(api_key_hash, server_name, guild_id)
+        .await
+        .expect("Failed to create server");
+
+    let app = create_app(db);
+
+    // WHEN: Making a request with a massive player name (> 1MB)
+    let huge_name = "A".repeat(2 * 1024 * 1024); // 2MB player name
+    let (status, _body) = send_request(
+        app,
+        "POST",
+        "/join",
+        Some(json!({ "player": huge_name })),
+        Some(&api_key),
+    )
+    .await;
+
+    // THEN: Should return 413 Payload Too Large
+    assert_eq!(status, StatusCode::PAYLOAD_TOO_LARGE);
+}
+
 // =============================================================================
 // INTEGRATION TESTS - COMPLETE USER FLOWS
 // =============================================================================
