@@ -14,6 +14,12 @@ async fn setup_test_db() -> oxeye_db::Database {
         .expect("Failed to create in-memory database")
 }
 
+/// Helper to create app with default test configuration
+fn create_test_app(db: oxeye_db::Database) -> axum::Router {
+    let config = oxeye_backend::config::Config::default();
+    create_app(db, config.request_body_limit, config.request_timeout)
+}
+
 /// Helper to send a request and get response
 async fn send_request(
     app: axum::Router,
@@ -60,7 +66,7 @@ async fn send_request(
 async fn test_error_response_format_for_nonexistent_code() {
     // GIVEN: An empty database
     let db = setup_test_db().await;
-    let app = create_app(db);
+    let app = create_test_app(db);
 
     // WHEN: Requesting with nonexistent code
     let (status, body) = send_request(
@@ -88,7 +94,7 @@ async fn test_error_response_format_for_nonexistent_code() {
 async fn test_error_response_for_invalid_api_key() {
     // GIVEN: An empty database
     let db = setup_test_db().await;
-    let app = create_app(db);
+    let app = create_test_app(db);
 
     // WHEN: Making request with invalid API key
     let (status, body) = send_request(
@@ -124,7 +130,7 @@ async fn test_error_response_for_validation_failure() {
         .await
         .expect("Failed to create server");
 
-    let app = create_app(db);
+    let app = create_test_app(db);
 
     // WHEN: Sending invalid player name (too long)
     let (status, body) = send_request(
@@ -153,7 +159,7 @@ async fn test_error_response_for_validation_failure() {
 async fn test_error_response_doesnt_expose_internals() {
     // GIVEN: An empty database
     let db = setup_test_db().await;
-    let app = create_app(db);
+    let app = create_test_app(db);
 
     // WHEN: Making request that would cause DB error
     let (status, body) = send_request(
@@ -206,7 +212,7 @@ async fn test_validation_error_has_details() {
         .await
         .expect("Failed to create server");
 
-    let app = create_app(db);
+    let app = create_test_app(db);
 
     // WHEN: Sending player name with invalid characters
     let (status, body) = send_request(

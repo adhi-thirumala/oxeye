@@ -14,6 +14,12 @@ async fn setup_test_db() -> oxeye_db::Database {
         .expect("Failed to create in-memory database")
 }
 
+/// Helper to create app with default test configuration
+fn create_test_app(db: oxeye_db::Database) -> axum::Router {
+    let config = oxeye_backend::config::Config::default();
+    create_app(db, config.request_body_limit, config.request_timeout)
+}
+
 /// Helper to send a request and get response
 async fn send_request(
     app: axum::Router,
@@ -71,7 +77,7 @@ async fn send_request(
 async fn test_health_endpoint_returns_ok() {
     // GIVEN: A running application
     let db = setup_test_db().await;
-    let app = create_app(db);
+    let app = create_test_app(db);
 
     // WHEN: Making a GET request to /health
     let (status, _body) = send_request(app, "GET", "/health", None, None).await;
@@ -84,7 +90,7 @@ async fn test_health_endpoint_returns_ok() {
 async fn test_health_endpoint_with_post_method() {
     // GIVEN: A running application
     let db = setup_test_db().await;
-    let app = create_app(db);
+    let app = create_test_app(db);
 
     // WHEN: Making a POST request to /health (wrong method)
     let (status, _body) = send_request(app, "POST", "/health", None, None).await;
@@ -110,7 +116,7 @@ async fn test_connect_success() {
         .await
         .expect("Failed to create pending link");
 
-    let app = create_app(db);
+    let app = create_test_app(db);
 
     // WHEN: Making a POST request to /connect with valid code
     let (status, body) = send_request(
@@ -134,7 +140,7 @@ async fn test_connect_success() {
 async fn test_connect_with_nonexistent_code() {
     // GIVEN: An empty database
     let db = setup_test_db().await;
-    let app = create_app(db);
+    let app = create_test_app(db);
 
     // WHEN: Making a POST request to /connect with nonexistent code
     let (status, _body) = send_request(
@@ -164,7 +170,7 @@ async fn test_connect_with_expired_code() {
         .await
         .expect("Failed to create pending link");
 
-    let app = create_app(db);
+    let app = create_test_app(db);
 
     // WHEN: Making a POST request to /connect with expired code
     let (status, _body) = send_request(
@@ -198,7 +204,7 @@ async fn test_connect_with_already_used_code() {
         .await
         .expect("Failed to consume pending link");
 
-    let app = create_app(db);
+    let app = create_test_app(db);
 
     // WHEN: Making a POST request to /connect with already used code
     let (status, _body) = send_request(
@@ -249,7 +255,7 @@ async fn test_connect_with_server_name_conflict() {
 async fn test_connect_with_invalid_code_format() {
     // GIVEN: A running application
     let db = setup_test_db().await;
-    let app = create_app(db);
+    let app = create_test_app(db);
 
     // WHEN: Making a POST request to /connect with invalid code format
     let (status, _body) = send_request(
@@ -269,7 +275,7 @@ async fn test_connect_with_invalid_code_format() {
 async fn test_connect_without_body() {
     // GIVEN: A running application
     let db = setup_test_db().await;
-    let app = create_app(db);
+    let app = create_test_app(db);
 
     // WHEN: Making a POST request to /connect without body
     let request = Request::builder()
@@ -307,7 +313,7 @@ async fn test_join_success() {
         .await
         .expect("Failed to create server");
 
-    let app = create_app(db);
+    let app = create_test_app(db);
 
     // WHEN: Making a POST request to /join with valid API key
     let (status, _body) = send_request(
@@ -327,7 +333,7 @@ async fn test_join_success() {
 async fn test_join_with_invalid_api_key() {
     // GIVEN: An empty database
     let db = setup_test_db().await;
-    let app = create_app(db);
+    let app = create_test_app(db);
 
     // WHEN: Making a POST request to /join with invalid API key
     let (status, _body) = send_request(
@@ -347,7 +353,7 @@ async fn test_join_with_invalid_api_key() {
 async fn test_join_without_authorization() {
     // GIVEN: A running application
     let db = setup_test_db().await;
-    let app = create_app(db);
+    let app = create_test_app(db);
 
     // WHEN: Making a POST request to /join without Authorization header
     let request = Request::builder()
@@ -388,7 +394,7 @@ async fn test_join_same_player_twice() {
         .await
         .expect("Failed to add player");
 
-    let app = create_app(db);
+    let app = create_test_app(db);
 
     // WHEN: Same player joins again
     let (status, _body) = send_request(
@@ -419,7 +425,7 @@ async fn test_join_multiple_players() {
 
     // WHEN: Multiple players join
     for player in &["Steve", "Alex", "Notch"] {
-        let app = create_app(db.clone());
+        let app = create_test_app(db.clone());
         let (status, _body) = send_request(
             app,
             "POST",
@@ -447,7 +453,7 @@ async fn test_join_with_empty_player_name() {
         .await
         .expect("Failed to create server");
 
-    let app = create_app(db);
+    let app = create_test_app(db);
 
     // WHEN: Making a request with empty player name
     let (status, _body) = send_request(
@@ -476,7 +482,7 @@ async fn test_join_with_invalid_player_name_chars() {
         .await
         .expect("Failed to create server");
 
-    let app = create_app(db);
+    let app = create_test_app(db);
 
     // WHEN: Making a request with invalid player name (contains special chars)
     let (status, _body) = send_request(
@@ -505,7 +511,7 @@ async fn test_join_with_too_long_player_name() {
         .await
         .expect("Failed to create server");
 
-    let app = create_app(db);
+    let app = create_test_app(db);
 
     // WHEN: Making a request with player name too long (17 chars)
     let (status, _body) = send_request(
@@ -543,7 +549,7 @@ async fn test_leave_success() {
         .await
         .expect("Failed to add player");
 
-    let app = create_app(db);
+    let app = create_test_app(db);
 
     // WHEN: Player leaves
     let (status, _body) = send_request(
@@ -572,7 +578,7 @@ async fn test_leave_player_not_online() {
         .await
         .expect("Failed to create server");
 
-    let app = create_app(db);
+    let app = create_test_app(db);
 
     // WHEN: Player leaves without being online
     let (status, _body) = send_request(
@@ -592,7 +598,7 @@ async fn test_leave_player_not_online() {
 async fn test_leave_with_invalid_api_key() {
     // GIVEN: An empty database
     let db = setup_test_db().await;
-    let app = create_app(db);
+    let app = create_test_app(db);
 
     // WHEN: Making a request with invalid API key
     let (status, _body) = send_request(
@@ -612,7 +618,7 @@ async fn test_leave_with_invalid_api_key() {
 async fn test_leave_without_authorization() {
     // GIVEN: A running application
     let db = setup_test_db().await;
-    let app = create_app(db);
+    let app = create_test_app(db);
 
     // WHEN: Making a request without Authorization header
     let request = Request::builder()
@@ -661,7 +667,7 @@ async fn test_sync_success() {
         .await
         .expect("Failed to add player");
 
-    let app = create_app(db);
+    let app = create_test_app(db);
 
     // WHEN: Syncing with new player list
     let (status, _body) = send_request(
@@ -695,7 +701,7 @@ async fn test_sync_empty_list() {
         .await
         .expect("Failed to add player");
 
-    let app = create_app(db);
+    let app = create_test_app(db);
 
     // WHEN: Syncing with empty player list (all players left)
     let (status, _body) = send_request(
@@ -715,7 +721,7 @@ async fn test_sync_empty_list() {
 async fn test_sync_with_invalid_api_key() {
     // GIVEN: An empty database
     let db = setup_test_db().await;
-    let app = create_app(db);
+    let app = create_test_app(db);
 
     // WHEN: Making a request with invalid API key
     let (status, _body) = send_request(
@@ -753,7 +759,7 @@ async fn test_sync_replaces_entire_list() {
         .expect("Failed to add player");
 
     // WHEN: Syncing with completely different list
-    let app = create_app(db.clone());
+    let app = create_test_app(db.clone());
     let (status, _body) = send_request(
         app,
         "POST",
@@ -792,7 +798,7 @@ async fn test_sync_with_large_player_list() {
         .await
         .expect("Failed to create server");
 
-    let app = create_app(db);
+    let app = create_test_app(db);
 
     // WHEN: Syncing with large player list (1001 players - exceeds limit)
     let players: Vec<String> = (0..1001).map(|i| format!("Player{}", i)).collect();
@@ -822,7 +828,7 @@ async fn test_sync_with_oversized_payload() {
         .await
         .expect("Failed to create server");
 
-    let app = create_app(db);
+    let app = create_test_app(db);
 
     // WHEN: Sending a request with massive player names (> 1MB total payload)
     // Create player names that are each 10KB, with 150 of them = 1.5MB total
@@ -855,7 +861,7 @@ async fn test_join_with_oversized_player_name() {
         .await
         .expect("Failed to create server");
 
-    let app = create_app(db);
+    let app = create_test_app(db);
 
     // WHEN: Making a request with a massive player name (> 1MB)
     let huge_name = "A".repeat(2 * 1024 * 1024); // 2MB player name
@@ -891,7 +897,7 @@ async fn test_complete_server_lifecycle() {
         .expect("Failed to create pending link");
 
     // Step 2: Connect and get API key
-    let app = create_app(db.clone());
+    let app = create_test_app(db.clone());
     let (status, body) = send_request(
         app,
         "POST",
@@ -904,7 +910,7 @@ async fn test_complete_server_lifecycle() {
     let api_key = body["api_key"].as_str().unwrap().to_string();
 
     // Step 3: Player joins
-    let app = create_app(db.clone());
+    let app = create_test_app(db.clone());
     let (status, _) = send_request(
         app,
         "POST",
@@ -916,7 +922,7 @@ async fn test_complete_server_lifecycle() {
     assert_eq!(status, StatusCode::OK);
 
     // Step 4: Another player joins
-    let app = create_app(db.clone());
+    let app = create_test_app(db.clone());
     let (status, _) = send_request(
         app,
         "POST",
@@ -928,7 +934,7 @@ async fn test_complete_server_lifecycle() {
     assert_eq!(status, StatusCode::OK);
 
     // Step 5: One player leaves
-    let app = create_app(db.clone());
+    let app = create_test_app(db.clone());
     let (status, _) = send_request(
         app,
         "POST",
@@ -940,7 +946,7 @@ async fn test_complete_server_lifecycle() {
     assert_eq!(status, StatusCode::OK);
 
     // Step 6: Sync with new player list
-    let app = create_app(db.clone());
+    let app = create_test_app(db.clone());
     let (status, _) = send_request(
         app,
         "POST",
@@ -973,7 +979,7 @@ async fn test_multiple_servers_in_same_guild() {
         .await
         .expect("Failed to create pending link 1");
 
-    let app = create_app(db.clone());
+    let app = create_test_app(db.clone());
     let (status, body) = send_request(
         app,
         "POST",
@@ -991,7 +997,7 @@ async fn test_multiple_servers_in_same_guild() {
         .await
         .expect("Failed to create pending link 2");
 
-    let app = create_app(db.clone());
+    let app = create_test_app(db.clone());
     let (status, body) = send_request(
         app,
         "POST",
@@ -1004,7 +1010,7 @@ async fn test_multiple_servers_in_same_guild() {
     let api_key2 = body["api_key"].as_str().unwrap().to_string();
 
     // WHEN: Different players join each server
-    let app = create_app(db.clone());
+    let app = create_test_app(db.clone());
     let (status, _) = send_request(
         app,
         "POST",
@@ -1015,7 +1021,7 @@ async fn test_multiple_servers_in_same_guild() {
     .await;
     assert_eq!(status, StatusCode::OK);
 
-    let app = create_app(db.clone());
+    let app = create_test_app(db.clone());
     let (status, _) = send_request(
         app,
         "POST",
@@ -1049,7 +1055,7 @@ async fn test_api_key_isolation() {
     db.create_pending_link(code1.clone(), 111, "Server1".to_string(), now)
         .await
         .expect("Failed to create pending link 1");
-    let app = create_app(db.clone());
+    let app = create_test_app(db.clone());
     let (_, body) = send_request(
         app,
         "POST",
@@ -1065,7 +1071,7 @@ async fn test_api_key_isolation() {
     db.create_pending_link(code2.clone(), 222, "Server2".to_string(), now)
         .await
         .expect("Failed to create pending link 2");
-    let app = create_app(db.clone());
+    let app = create_test_app(db.clone());
     let (_, body) = send_request(
         app,
         "POST",
@@ -1077,7 +1083,7 @@ async fn test_api_key_isolation() {
     let _api_key2 = body["api_key"].as_str().unwrap().to_string();
 
     // WHEN: Server 1 tries to use Server 2's endpoint with wrong API key
-    let app = create_app(db.clone());
+    let app = create_test_app(db.clone());
     let (status, _) = send_request(
         app,
         "POST",
