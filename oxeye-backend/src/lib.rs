@@ -1,5 +1,6 @@
 pub mod helpers;
 mod routes;
+mod validation;
 
 use axum::{http::StatusCode, routing::{get, post}, Router};
 use std::sync::Arc;

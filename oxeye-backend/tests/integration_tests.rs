@@ -246,6 +246,26 @@ async fn test_connect_with_server_name_conflict() {
 }
 
 #[tokio::test]
+async fn test_connect_with_invalid_code_format() {
+    // GIVEN: A running application
+    let db = setup_test_db().await;
+    let app = create_app(db);
+
+    // WHEN: Making a POST request to /connect with invalid code format
+    let (status, _body) = send_request(
+        app,
+        "POST",
+        "/connect",
+        Some(json!({ "code": "invalid-format" })),
+        None,
+    )
+    .await;
+
+    // THEN: Should return 400 Bad Request
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
 async fn test_connect_without_body() {
     // GIVEN: A running application
     let db = setup_test_db().await;
@@ -439,10 +459,66 @@ async fn test_join_with_empty_player_name() {
     )
     .await;
 
-    // THEN: Currently accepts empty names (BUG - should validate)
-    // This test documents the current behavior
-    assert_eq!(status, StatusCode::OK);
-    // TODO: Should return 400 Bad Request after adding validation
+    // THEN: Should return 400 Bad Request (validation now enforced)
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn test_join_with_invalid_player_name_chars() {
+    // GIVEN: A valid server exists
+    let db = setup_test_db().await;
+    let api_key = helpers::generate_api_key();
+    let api_key_hash = helpers::hash_api_key(&api_key);
+    let guild_id = 123456789u64;
+    let server_name = "TestServer".to_string();
+
+    db.create_server(api_key_hash, server_name, guild_id)
+        .await
+        .expect("Failed to create server");
+
+    let app = create_app(db);
+
+    // WHEN: Making a request with invalid player name (contains special chars)
+    let (status, _body) = send_request(
+        app,
+        "POST",
+        "/join",
+        Some(json!({ "player": "Player-123" })),
+        Some(&api_key),
+    )
+    .await;
+
+    // THEN: Should return 400 Bad Request
+    assert_eq!(status, StatusCode::BAD_REQUEST);
+}
+
+#[tokio::test]
+async fn test_join_with_too_long_player_name() {
+    // GIVEN: A valid server exists
+    let db = setup_test_db().await;
+    let api_key = helpers::generate_api_key();
+    let api_key_hash = helpers::hash_api_key(&api_key);
+    let guild_id = 123456789u64;
+    let server_name = "TestServer".to_string();
+
+    db.create_server(api_key_hash, server_name, guild_id)
+        .await
+        .expect("Failed to create server");
+
+    let app = create_app(db);
+
+    // WHEN: Making a request with player name too long (17 chars)
+    let (status, _body) = send_request(
+        app,
+        "POST",
+        "/join",
+        Some(json!({ "player": "12345678901234567" })),
+        Some(&api_key),
+    )
+    .await;
+
+    // THEN: Should return 400 Bad Request
+    assert_eq!(status, StatusCode::BAD_REQUEST);
 }
 
 // =============================================================================
@@ -718,8 +794,8 @@ async fn test_sync_with_large_player_list() {
 
     let app = create_app(db);
 
-    // WHEN: Syncing with large player list (100 players)
-    let players: Vec<String> = (0..100).map(|i| format!("Player{}", i)).collect();
+    // WHEN: Syncing with large player list (1001 players - exceeds limit)
+    let players: Vec<String> = (0..1001).map(|i| format!("Player{}", i)).collect();
     let (status, _body) = send_request(
         app,
         "POST",
@@ -729,9 +805,8 @@ async fn test_sync_with_large_player_list() {
     )
     .await;
 
-    // THEN: Should return 200 OK
-    // Note: This documents that there's no limit on player list size (potential DOS)
-    assert_eq!(status, StatusCode::OK);
+    // THEN: Should return 400 Bad Request (list too large - validation enforced)
+    assert_eq!(status, StatusCode::BAD_REQUEST);
 }
 
 // =============================================================================

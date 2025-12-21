@@ -1,4 +1,5 @@
 use crate::helpers::now;
+use crate::validation;
 use crate::AppState;
 
 use axum::{
@@ -39,6 +40,9 @@ pub(crate) async fn connect(
     State(state): State<Arc<AppState>>,
     Json(payload): Json<ConnRequest>,
 ) -> Result<impl IntoResponse, StatusCode> {
+    // Validate code format
+    validation::validate_code(&payload.code).map_err(|_| StatusCode::BAD_REQUEST)?;
+
     let pending_link = state
         .db
         .consume_pending_link(payload.code, now())
@@ -71,6 +75,11 @@ pub(crate) async fn join(
     TypedHeader(auth): TypedHeader<Authorization<Bearer>>,
     Json(payload): Json<TransitionRequest>,
 ) -> StatusCode {
+    // Validate player name
+    if let Err(_) = validation::validate_player_name(&payload.player) {
+        return StatusCode::BAD_REQUEST;
+    }
+
     let api_key = auth.token().to_string();
     let api_key_hash = crate::helpers::hash_api_key(&api_key);
     match state
@@ -91,6 +100,11 @@ pub(crate) async fn leave(
     TypedHeader(auth): TypedHeader<Authorization<Bearer>>,
     Json(payload): Json<TransitionRequest>,
 ) -> StatusCode {
+    // Validate player name
+    if let Err(_) = validation::validate_player_name(&payload.player) {
+        return StatusCode::BAD_REQUEST;
+    }
+
     let api_key = auth.token().to_string();
     let api_key_hash = crate::helpers::hash_api_key(&api_key);
     match state
@@ -112,6 +126,11 @@ pub(crate) async fn sync(
     TypedHeader(auth): TypedHeader<Authorization<Bearer>>,
     Json(payload): Json<SyncRequest>,
 ) -> StatusCode {
+    // Validate player list (size and individual names)
+    if let Err(_) = validation::validate_player_list(&payload.players) {
+        return StatusCode::BAD_REQUEST;
+    }
+
     let api_key = auth.token().to_string();
     let api_key_hash = crate::helpers::hash_api_key(&api_key);
     match state
