@@ -879,6 +879,216 @@ async fn test_join_with_oversized_player_name() {
 }
 
 // =============================================================================
+// STATUS ENDPOINT TESTS
+// =============================================================================
+
+#[tokio::test]
+async fn test_status_authenticated() {
+    // GIVEN: A connected server
+    let db = setup_test_db().await;
+    let api_key = helpers::generate_api_key();
+    let api_key_hash = helpers::hash_api_key(&api_key);
+    let guild_id = 123456789u64;
+    let server_name = "TestServer".to_string();
+
+    db.create_server(api_key_hash, server_name, guild_id)
+        .await
+        .expect("Failed to create server");
+
+    let app = create_test_app(db);
+
+    // WHEN: Making a GET request to /status with valid API key
+    let (status, _body) = send_request(
+        app,
+        "GET",
+        "/status",
+        None,
+        Some(&api_key),
+    )
+    .await;
+
+    // THEN: Should return 200 OK
+    assert_eq!(status, StatusCode::OK);
+}
+
+#[tokio::test]
+async fn test_status_invalid_api_key() {
+    // GIVEN: An empty database
+    let db = setup_test_db().await;
+    let app = create_test_app(db);
+
+    // WHEN: Making a GET request to /status with invalid API key
+    let (status, body) = send_request(
+        app,
+        "GET",
+        "/status",
+        None,
+        Some("oxeye-sk-invalid12345678901234567890"),
+    )
+    .await;
+
+    // THEN: Should return 401 Unauthorized
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    assert!(body.get("error").is_some());
+}
+
+#[tokio::test]
+async fn test_status_without_authorization() {
+    // GIVEN: A running application
+    let db = setup_test_db().await;
+    let app = create_test_app(db);
+
+    // WHEN: Making a GET request to /status without Authorization header
+    let request = Request::builder()
+        .uri("/status")
+        .method("GET")
+        .body(Body::empty())
+        .unwrap();
+
+    let response = app.oneshot(request).await.unwrap();
+    let status = response.status();
+
+    // THEN: Should return 400 Bad Request (missing required header)
+    assert!(
+        status.is_client_error(),
+        "Expected client error, got {}",
+        status
+    );
+}
+
+// =============================================================================
+// DISCONNECT ENDPOINT TESTS
+// =============================================================================
+
+#[tokio::test]
+async fn test_disconnect_success() {
+    // GIVEN: A connected server with players
+    let db = setup_test_db().await;
+    let api_key = helpers::generate_api_key();
+    let api_key_hash = helpers::hash_api_key(&api_key);
+    let guild_id = 123456789u64;
+    let server_name = "TestServer".to_string();
+
+    db.create_server(api_key_hash.clone(), server_name, guild_id)
+        .await
+        .expect("Failed to create server");
+
+    // Add some players
+    let now = helpers::now();
+    db.player_join(api_key_hash.clone(), "Steve".to_string(), now)
+        .await
+        .expect("Failed to add player");
+
+    let app = create_test_app(db.clone());
+
+    // WHEN: Making a POST request to /disconnect with valid API key
+    let (status, _body) = send_request(
+        app,
+        "POST",
+        "/disconnect",
+        None,
+        Some(&api_key),
+    )
+    .await;
+
+    // THEN: Should return 200 OK
+    assert_eq!(status, StatusCode::OK);
+
+    // AND: Server should be deleted
+    let server = db.get_server_by_api_key(api_key_hash.clone()).await.expect("Query failed");
+    assert!(server.is_none());
+
+    // AND: Players should be deleted (cascade)
+    let players = db.get_online_players(api_key_hash).await.expect("Query failed");
+    assert!(players.is_empty());
+}
+
+#[tokio::test]
+async fn test_disconnect_with_invalid_api_key() {
+    // GIVEN: An empty database
+    let db = setup_test_db().await;
+    let app = create_test_app(db);
+
+    // WHEN: Making a request with invalid API key
+    let (status, body) = send_request(
+        app,
+        "POST",
+        "/disconnect",
+        None,
+        Some("oxeye-sk-invalid12345678901234567890"),
+    )
+    .await;
+
+    // THEN: Should return 401 Unauthorized
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+    assert!(body.get("error").is_some());
+}
+
+#[tokio::test]
+async fn test_disconnect_without_authorization() {
+    // GIVEN: A running application
+    let db = setup_test_db().await;
+    let app = create_test_app(db);
+
+    // WHEN: Making a request without Authorization header
+    let request = Request::builder()
+        .uri("/disconnect")
+        .method("POST")
+        .body(Body::empty())
+        .unwrap();
+
+    let response = app.oneshot(request).await.unwrap();
+    let status = response.status();
+
+    // THEN: Should return 400 Bad Request (missing required header)
+    assert!(
+        status.is_client_error(),
+        "Expected client error, got {}",
+        status
+    );
+}
+
+#[tokio::test]
+async fn test_disconnect_twice() {
+    // GIVEN: A connected server
+    let db = setup_test_db().await;
+    let api_key = helpers::generate_api_key();
+    let api_key_hash = helpers::hash_api_key(&api_key);
+    let guild_id = 123456789u64;
+    let server_name = "TestServer".to_string();
+
+    db.create_server(api_key_hash, server_name, guild_id)
+        .await
+        .expect("Failed to create server");
+
+    // First disconnect
+    let app = create_test_app(db.clone());
+    let (status, _) = send_request(
+        app,
+        "POST",
+        "/disconnect",
+        None,
+        Some(&api_key),
+    )
+    .await;
+    assert_eq!(status, StatusCode::OK);
+
+    // WHEN: Trying to disconnect again with same API key
+    let app = create_test_app(db);
+    let (status, _) = send_request(
+        app,
+        "POST",
+        "/disconnect",
+        None,
+        Some(&api_key),
+    )
+    .await;
+
+    // THEN: Should return 401 Unauthorized (key no longer valid)
+    assert_eq!(status, StatusCode::UNAUTHORIZED);
+}
+
+// =============================================================================
 // INTEGRATION TESTS - COMPLETE USER FLOWS
 // =============================================================================
 

@@ -61,7 +61,7 @@ pub(crate) async fn connect(
         )
         .await?;
 
-    Ok((StatusCode::OK, Json(ConnResponse { api_key })))
+    Ok((StatusCode::CREATED, Json(ConnResponse { api_key })))
 }
 
 #[debug_handler]
@@ -120,4 +120,40 @@ pub(crate) async fn sync(
         .await?;
 
     Ok(StatusCode::OK)
+}
+
+#[debug_handler]
+pub(crate) async fn disconnect(
+    State(state): State<Arc<AppState>>,
+    TypedHeader(auth): TypedHeader<Authorization<Bearer>>,
+) -> Result<impl IntoResponse, AppError> {
+    let api_key = auth.token().to_string();
+    let api_key_hash = crate::helpers::hash_api_key(&api_key);
+
+    state
+        .db
+        .delete_server_by_api_key(api_key_hash)
+        .await?;
+
+    Ok(StatusCode::OK)
+}
+
+#[debug_handler]
+pub(crate) async fn status(
+    State(state): State<Arc<AppState>>,
+    TypedHeader(auth): TypedHeader<Authorization<Bearer>>,
+) -> Result<impl IntoResponse, AppError> {
+    let api_key = auth.token().to_string();
+    let api_key_hash = crate::helpers::hash_api_key(&api_key);
+
+    // Check if server exists with this API key
+    let server = state
+        .db
+        .get_server_by_api_key(api_key_hash)
+        .await?;
+
+    match server {
+        Some(_) => Ok(StatusCode::OK),
+        None => Err(AppError::DatabaseError(oxeye_db::DbError::InvalidApiKey)),
+    }
 }

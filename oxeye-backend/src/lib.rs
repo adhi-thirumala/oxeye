@@ -20,7 +20,9 @@ pub fn create_app(db: oxeye_db::Database, request_body_limit: usize, request_tim
 
     Router::new()
         .route("/health", get(|| async { StatusCode::OK }))
+        .route("/status", get(routes::status))
         .route("/connect", post(routes::connect))
+        .route("/disconnect", post(routes::disconnect))
         .route("/join", post(routes::join))
         .route("/leave", post(routes::leave))
         .route("/sync", post(routes::sync))
