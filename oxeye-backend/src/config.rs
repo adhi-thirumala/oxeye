@@ -29,6 +29,32 @@ pub struct Config {
   /// Discord Command Prefix
   /// Env: DISCORD_COMMAND_PREFIX (default: "!")
   pub discord_command_prefix: String,
+
+  /// Rate limit for /connect endpoint (requests per minute)
+  /// Env: RATE_LIMIT_CONNECT_PER_MIN (default: 5)
+  /// This is stricter since connect is only used once per server setup
+  pub rate_limit_connect_per_min: u64,
+
+  /// Burst size for /connect endpoint
+  /// Env: RATE_LIMIT_CONNECT_BURST (default: 2)
+  pub rate_limit_connect_burst: u32,
+
+  /// Rate limit for player endpoints like /join, /leave, /sync (requests per second)
+  /// Env: RATE_LIMIT_PLAYER_PER_SEC (default: 50)
+  /// This is lenient to handle many players joining/leaving at once
+  pub rate_limit_player_per_sec: u64,
+
+  /// Burst size for player endpoints
+  /// Env: RATE_LIMIT_PLAYER_BURST (default: 100)
+  pub rate_limit_player_burst: u32,
+
+  /// Rate limit for general endpoints (requests per second)
+  /// Env: RATE_LIMIT_GENERAL_PER_SEC (default: 10)
+  pub rate_limit_general_per_sec: u64,
+
+  /// Burst size for general endpoints
+  /// Env: RATE_LIMIT_GENERAL_BURST (default: 20)
+  pub rate_limit_general_burst: u32,
 }
 
 impl Config {
@@ -44,6 +70,12 @@ impl Config {
         .expect("DISCORD_TOKEN environment variable is required")
         .into(),
       discord_command_prefix: env_or_default_string("DISCORD_COMMAND_PREFIX", "!"),
+      rate_limit_connect_per_min: env_or_default("RATE_LIMIT_CONNECT_PER_MIN", 5),
+      rate_limit_connect_burst: env_or_default("RATE_LIMIT_CONNECT_BURST", 2),
+      rate_limit_player_per_sec: env_or_default("RATE_LIMIT_PLAYER_PER_SEC", 50),
+      rate_limit_player_burst: env_or_default("RATE_LIMIT_PLAYER_BURST", 100),
+      rate_limit_general_per_sec: env_or_default("RATE_LIMIT_GENERAL_PER_SEC", 10),
+      rate_limit_general_burst: env_or_default("RATE_LIMIT_GENERAL_BURST", 20),
     }
   }
 
@@ -56,6 +88,12 @@ impl Config {
       database_path: "oxeye.db".to_string(),
       discord_token: None,
       discord_command_prefix: "!oxeye".to_string(),
+      rate_limit_connect_per_min: 5,
+      rate_limit_connect_burst: 2,
+      rate_limit_player_per_sec: 50,
+      rate_limit_player_burst: 100,
+      rate_limit_general_per_sec: 10,
+      rate_limit_general_burst: 20,
     }
   }
 }
@@ -84,5 +122,11 @@ mod tests {
     assert_eq!(config.request_timeout, Duration::from_secs(30));
     assert_eq!(config.port, 3000);
     assert_eq!(config.database_path, "oxeye.db");
+    assert_eq!(config.rate_limit_connect_per_min, 5);
+    assert_eq!(config.rate_limit_connect_burst, 2);
+    assert_eq!(config.rate_limit_player_per_sec, 50);
+    assert_eq!(config.rate_limit_player_burst, 100);
+    assert_eq!(config.rate_limit_general_per_sec, 10);
+    assert_eq!(config.rate_limit_general_burst, 20);
   }
 }

@@ -1,7 +1,8 @@
 mod discord_commands;
-use oxeye_backend::create_app;
+use oxeye_backend::{create_app, RateLimitConfig};
 use oxeye_db::Database;
 use poise::{serenity_prelude as serenity, Framework, FrameworkOptions};
+use std::net::SocketAddr;
 use tokio::net::TcpListener;
 
 type Context<'a> = poise::Context<'a, crate::Data, crate::discord_commands::Error>;
@@ -27,11 +28,29 @@ async fn main() {
     config.request_body_limit / 1024,
     config.request_timeout.as_secs()
   );
+    tracing::info!(
+    "Rate limits: connect={}/min (burst {}), player={}/sec (burst {}), general={}/sec (burst {})",
+    config.rate_limit_connect_per_min,
+    config.rate_limit_connect_burst,
+    config.rate_limit_player_per_sec,
+    config.rate_limit_player_burst,
+    config.rate_limit_general_per_sec,
+    config.rate_limit_general_burst
+  );
     let db = Database::open(&config.database_path).await.unwrap();
+    let rate_limit = RateLimitConfig {
+        connect_per_min: config.rate_limit_connect_per_min,
+        connect_burst: config.rate_limit_connect_burst,
+        player_per_sec: config.rate_limit_player_per_sec,
+        player_burst: config.rate_limit_player_burst,
+        general_per_sec: config.rate_limit_general_per_sec,
+        general_burst: config.rate_limit_general_burst,
+    };
     let app = create_app(
         db.clone(),
         config.request_body_limit,
         config.request_timeout,
+        rate_limit,
     );
     let addr = format!("0.0.0.0:{}", config.port);
     let listener = TcpListener::bind(&addr).await.unwrap();
@@ -81,7 +100,7 @@ async fn main() {
         .await
         .expect("Error creating Discord client");
     tokio::select! {
-      result = axum::serve(listener, app) => {
+      result = axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>()) => {
           if let Err(e) = result {
               tracing::error!("Axum server error: {}", e);
           }

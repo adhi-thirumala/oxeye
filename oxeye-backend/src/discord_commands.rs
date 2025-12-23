@@ -7,6 +7,7 @@ use poise::CreateReply;
 
 pub(crate) type Error = Box<dyn std::error::Error + Send + Sync>;
 
+/// Generate a one-time code to link a Minecraft server to this Discord server
 #[command(slash_command, prefix_command, required_permissions = "ADMINISTRATOR")]
 pub async fn connect(
   ctx: Context<'_>,
@@ -40,6 +41,7 @@ pub async fn connect(
   Ok(())
 }
 
+/// List all Minecraft servers linked to this Discord server
 #[command(slash_command, prefix_command, required_permissions = "ADMINISTRATOR")]
 pub async fn list(ctx: Context<'_>) -> Result<(), Error> {
   let data = ctx.data();
@@ -65,6 +67,7 @@ pub async fn list(ctx: Context<'_>) -> Result<(), Error> {
   Ok(())
 }
 
+/// Show online players for a linked Minecraft server
 #[command(slash_command, prefix_command, required_permissions = "ADMINISTRATOR")]
 pub async fn status(
   ctx: Context<'_>,
