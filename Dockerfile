@@ -19,7 +19,7 @@ RUN cargo build --release
 COPY oxeye-backend/src oxeye-backend/src
 COPY oxeye-db/src oxeye-db/src
 
-RUN touch oxeye-backend/src/main.rs && cargo build --release
+RUN touch oxeye-db/src/lib.rs && touch oxeye-backend/src/main.rs && touch oxeye-backend/src/lib.rs && cargo build --release
 
 # Runtime stage - scratch with just the binary and CA certs
 FROM scratch
