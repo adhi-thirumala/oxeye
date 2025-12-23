@@ -351,6 +351,27 @@ impl Database {
     Ok(result)
   }
 
+  /// Delete a server by API key hash (for self-disconnect).
+  pub async fn delete_server_by_api_key(&self, api_key_hash: String) -> Result<()> {
+    let result = self
+      .conn
+      .call(move |conn| {
+        let deleted = conn
+          .prepare_cached("DELETE FROM servers WHERE api_key_hash = ?1")?
+          .execute(params![&api_key_hash])?;
+
+        if deleted == 0 {
+          return Ok(Err(DbError::InvalidApiKey));
+        }
+
+        Ok(Ok(()))
+      })
+      .await??;
+
+    debug!("deleted server by api key");
+    Ok(result)
+  }
+
   /// Check if a server name exists in a guild.
   pub async fn server_name_exists(&self, guild_id: u64, name: String) -> Result<bool> {
     let exists = self

@@ -2,4 +2,6 @@
 *.db
 *.db-shm
 *.db-wal
-**/.idea/copilot*
+.idea/
+**/.idea/
+.env
