@@ -8,8 +8,8 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.CompletableFuture;
-import java.util.logging.Level;
 
 public class OxeyeHttp {
   private static final HttpClient client = HttpClient.newHttpClient();
@@ -29,10 +29,10 @@ public class OxeyeHttp {
   // Player events (fire-and-forget, uses stored API key)
   // ========================================================================
 
-  public static void sendSyncRequest(ArrayList<String> playerNames) throws URISyntaxException {
+  public static void sendSyncRequest(List<String> playerNames) throws URISyntaxException {
     OxeyeMod.LOGGER.info("Sending sync request for players: " + String.join(", ", playerNames));
     postAuthenticatedAsync("/sync", GSON.toJson(new Object() {
-      final ArrayList<String> players = playerNames;
+      final List<String> players = playerNames;
     }));
   }
 
@@ -113,7 +113,7 @@ public class OxeyeHttp {
   private static URI getBaseUri() throws URISyntaxException {
     OxeyeConfig config = OxeyeMod.CONFIG;
     if (config.getServerUrl() == null) {
-      OxeyeMod.LOGGER.log(Level.SEVERE, "Server URL is not configured.");
+      OxeyeMod.LOGGER.error("Server URL is not configured.");
       throw new URISyntaxException("", "Server URL is not configured.");
     }
     return config.getServerUrl().toURI();
@@ -150,11 +150,11 @@ public class OxeyeHttp {
           if (response.statusCode() >= 200 && response.statusCode() < 300) {
             OxeyeMod.LOGGER.info("HTTP request to " + endpoint + " succeeded");
           } else {
-            OxeyeMod.LOGGER.log(Level.SEVERE, "HTTP request to " + endpoint + " failed: " + parseErrorMessage(response));
+            OxeyeMod.LOGGER.error("HTTP request to " + endpoint + " failed: " + parseErrorMessage(response));
           }
         })
         .exceptionally(e -> {
-          OxeyeMod.LOGGER.log(Level.SEVERE, "HTTP request to " + endpoint + " failed: " + e.getMessage());
+          OxeyeMod.LOGGER.error("HTTP request to " + endpoint + " failed: " + e.getMessage());
           return null;
         });
   }

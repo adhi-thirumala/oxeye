@@ -5,17 +5,16 @@ import com.google.gson.GsonBuilder;
 import net.fabricmc.loader.api.FabricLoader;
 
 import java.net.MalformedURLException;
+import java.net.URI;
 import java.net.URL;
 import java.nio.file.Path;
-import java.util.logging.Level;
-import java.util.logging.Logger;
 
 public class OxeyeConfig {
     private static final Path CONFIG_PATH =
             FabricLoader.getInstance().getConfigDir().resolve("oxeye.json");
     private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
     private String api_token = null;
-    private URL server_url = new URL("https://oxeye.adhithirumala.com");
+    private URL server_url = URI.create("https://oxeye.adhithirumala.com").toURL();
 
     public OxeyeConfig() throws MalformedURLException {
     }
@@ -26,7 +25,7 @@ public class OxeyeConfig {
                 String json = java.nio.file.Files.readString(CONFIG_PATH);
                 return GSON.fromJson(json, OxeyeConfig.class);
             } catch (Exception e) {
-                Logger.getGlobal().log(Level.CONFIG, "Failed to read config file: " + e.getMessage());
+                OxeyeMod.LOGGER.warn("Failed to read config file: {}", e.getMessage());
             }
         }
         OxeyeConfig config = new OxeyeConfig();
@@ -38,7 +37,7 @@ public class OxeyeConfig {
         try {
             java.nio.file.Files.writeString(CONFIG_PATH, GSON.toJson(this));
         } catch (Exception e) {
-            Logger.getGlobal().log(Level.CONFIG, "Failed to write config file: " + e);
+            OxeyeMod.LOGGER.warn("Failed to write config file: {}", e.getMessage());
         }
     }
 
