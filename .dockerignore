@@ -1,0 +1,13 @@
+target/
+.git/
+.gitignore
+*.md
+.env
+oxeye-mod/
+.idea/
+.claude/
+assets/
+claude-code-docs/
+*.db
+*.db-shm
+*.db-wal
