@@ -20,6 +20,7 @@ tracing-subscriber = { workspace = true }
 poise = { workspace = true }
 rand = "0.10.0-rc.5"
 sha2 = "0.10.9"
+dotenvy = "0.15.7"
 
 [dev-dependencies]
 http-body-util = "0.1"
