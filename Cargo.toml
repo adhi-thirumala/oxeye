@@ -17,7 +17,7 @@ tower_governor = { version = "0.8.0", features = ["axum"] }
 tower-http = { version = "0.6.8", features = ["cors", "trace", "limit", "timeout"] }
 
 # Database
-tokio-rusqlite = "0.7"
+tokio-rusqlite = { version = "0.7", features = ["bundled"]}
 oxeye-db = { path = "oxeye-db" }
 
 # Serialization
