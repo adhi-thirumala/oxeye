@@ -3,7 +3,7 @@ use axum::{
   http::{Request, StatusCode},
 };
 use http_body_util::BodyExt;
-use oxeye_backend::{create_app, helpers};
+use oxeye_backend::{create_app, helpers, RateLimitConfig};
 use serde_json::{Value, json};
 use tower::ServiceExt;
 
@@ -17,7 +17,12 @@ async fn setup_test_db() -> oxeye_db::Database {
 /// Helper to create app with default test configuration
 fn create_test_app(db: oxeye_db::Database) -> axum::Router {
   let config = oxeye_backend::config::Config::default();
-  create_app(db, config.request_body_limit, config.request_timeout)
+  create_app(
+    db,
+    config.request_body_limit,
+    config.request_timeout,
+    RateLimitConfig::default(),
+  )
 }
 
 /// Helper to send a request and get response
@@ -28,7 +33,10 @@ async fn send_request(
   body: Option<Value>,
   auth_token: Option<&str>,
 ) -> (StatusCode, Value) {
-  let mut request_builder = Request::builder().uri(uri).method(method);
+  let mut request_builder = Request::builder()
+    .uri(uri)
+    .method(method)
+    .header("X-Forwarded-For", "127.0.0.1"); // Mock IP for rate limiter
 
   if let Some(token) = auth_token {
     request_builder = request_builder.header("Authorization", format!("Bearer {}", token));
