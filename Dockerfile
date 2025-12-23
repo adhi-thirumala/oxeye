@@ -1,5 +1,5 @@
 # Build stage
-FROM rust:1.83-alpine AS builder
+FROM rust:1.92-alpine AS builder
 
 RUN apk add --no-cache musl-dev
 
@@ -14,7 +14,7 @@ RUN mkdir -p oxeye-backend/src oxeye-db/src && \
     echo "pub fn dummy() {}" > oxeye-backend/src/lib.rs && \
     echo "pub fn dummy() {}" > oxeye-db/src/lib.rs
 
-RUN cargo build --release 2>/dev/null || true
+RUN cargo build --release
 
 COPY oxeye-backend/src oxeye-backend/src
 COPY oxeye-db/src oxeye-db/src
