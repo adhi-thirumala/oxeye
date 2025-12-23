@@ -4,3 +4,4 @@
 *.db-wal
 .idea/
 **/.idea/
+.env
