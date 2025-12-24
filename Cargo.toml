@@ -5,6 +5,9 @@ members = [
     "oxeye-db",
 ]
 
+[profile.release]
+lto = true
+
 [workspace.dependencies]
 # Web framework
 axum = "0.8.8"
