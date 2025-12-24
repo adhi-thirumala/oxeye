@@ -1,6 +1,5 @@
 FROM scratch
 COPY --from=alpine:latest /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
-COPY --from=alpine:latest /tmp /tmp
 COPY target/x86_64-unknown-linux-musl/release/oxeye-backend /oxeye-backend
 ENV DATABASE_PATH=/oxeye.db
 ENV PORT=3000
