@@ -33,7 +33,7 @@ jobs:
         run: cargo zigbuild --release --target aarch64-unknown-linux-musl
 
       - name: Move binary to workspace root
-        run: mv target/aarch64-unknown-linux-musl/release/oxeye-backend .
+        run: mv target/aarch64-unknown-linux-musl/release/oxeye-backend ./target/
 
       - name: Log in to GHCR
         uses: docker/login-action@v3
@@ -76,7 +76,7 @@ jobs:
         run: cargo zigbuild --release --target x86_64-unknown-linux-musl
 
       - name: Move binary to workspace root
-        run: mv target/x86_64-unknown-linux-musl/release/oxeye-backend .
+        run: mv target/x86_64-unknown-linux-musl/release/oxeye-backend ./target
 
       - name: Log in to GHCR
         uses: docker/login-action@v3
