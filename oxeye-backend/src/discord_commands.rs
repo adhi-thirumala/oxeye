@@ -1,9 +1,9 @@
 use crate::Context;
 use oxeye_backend::helpers;
 use oxeye_backend::helpers::now;
+use poise::CreateReply;
 use poise::command;
 use poise::serenity_prelude::{CreateEmbed, CreateEmbedFooter};
-use poise::CreateReply;
 
 pub(crate) type Error = Box<dyn std::error::Error + Send + Sync>;
 
@@ -42,7 +42,7 @@ pub async fn connect(
 }
 
 /// List all Minecraft servers linked to this Discord server
-#[command(slash_command, prefix_command, required_permissions = "ADMINISTRATOR")]
+#[command(slash_command, prefix_command)]
 pub async fn list(ctx: Context<'_>) -> Result<(), Error> {
   let data = ctx.data();
   let guild_id = ctx
@@ -68,7 +68,7 @@ pub async fn list(ctx: Context<'_>) -> Result<(), Error> {
 }
 
 /// Show online players for a linked Minecraft server
-#[command(slash_command, prefix_command, required_permissions = "ADMINISTRATOR")]
+#[command(slash_command, prefix_command)]
 pub async fn status(
   ctx: Context<'_>,
   #[description = "Minecraft Server Name"] name: String,
