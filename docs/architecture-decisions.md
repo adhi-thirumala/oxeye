@@ -142,6 +142,19 @@ Discord bot can show:
 🟢 Minigames - 0 players online
 ```
 
+### Manual Sync Command
+
+If no players join/leave after a backend restart, the server stays in "awaiting sync" state. Add `/oxeye sync` command for admins to manually trigger a resync:
+
+```
+Admin sees Discord: ⏳ Creative Server - awaiting sync
+Admin runs in-game: /oxeye sync
+Mod sends:          /sync [current players], gen=N
+Discord updates:    🟢 Creative Server - 3 players online
+```
+
+This complements automatic sync (on boot ID change) with a manual escape hatch.
+
 ---
 
 ## Request Ordering with Generations
