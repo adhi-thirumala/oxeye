@@ -94,7 +94,7 @@ pub async fn status(
       .map(|p| {
         let time_online = current_time - p.joined_at;
         let formatted_time = format_time_online(time_online);
-        format!("- {} ({})", p.player_name, formatted_time)
+        format!("- {} (Joined {} ago)", p.player_name, formatted_time)
       })
       .collect::<Vec<_>>()
       .join("\n");
