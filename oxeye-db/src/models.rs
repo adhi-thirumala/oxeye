@@ -54,9 +54,18 @@ pub struct ServerSummary {
   pub player_count: u32,
 }
 
+/// Player info without server context (for use in ServerWithPlayers).
+#[derive(Debug, Clone)]
+pub struct PlayerInfo {
+  /// Player's Minecraft username
+  pub player_name: String,
+  /// Unix timestamp when they joined
+  pub joined_at: i64,
+}
+
 /// Server with its online players.
 #[derive(Debug, Clone)]
 pub struct ServerWithPlayers {
   pub name: String,
-  pub players: Vec<String>,
+  pub players: Vec<PlayerInfo>,
 }
