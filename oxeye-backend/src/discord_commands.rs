@@ -1,6 +1,6 @@
 use crate::Context;
 use oxeye_backend::helpers;
-use oxeye_backend::helpers::now;
+use oxeye_backend::helpers::{format_time_online, now};
 use poise::CreateReply;
 use poise::command;
 use poise::serenity_prelude::{CreateEmbed, CreateEmbedFooter};
@@ -87,10 +87,15 @@ pub async fn status(
       .description("No players online")
       .field("Players", "0", true)
   } else {
+    let current_time = now();
     let player_list: String = server
       .players
       .iter()
-      .map(|p| format!("- {}", p))
+      .map(|p| {
+        let time_online = current_time - p.joined_at;
+        let formatted_time = format_time_online(time_online);
+        format!("- {} ({})", p.player_name, formatted_time)
+      })
       .collect::<Vec<_>>()
       .join("\n");
     embed

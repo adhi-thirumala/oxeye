@@ -542,13 +542,19 @@ impl Database {
 
         // Then get players for each server
         let mut player_stmt = conn.prepare_cached(
-          "SELECT player_name FROM online_players WHERE api_key_hash = ?1 ORDER BY player_name",
+          "SELECT player_name, joined_at FROM online_players WHERE api_key_hash = ?1 ORDER BY player_name",
         )?;
 
         let mut result = Vec::new();
         for (api_key_hash, name) in servers {
-          let players: Vec<String> = player_stmt
-            .query_map(params![&api_key_hash], |row| row.get(0))?
+          let players: Vec<OnlinePlayer> = player_stmt
+            .query_map(params![&api_key_hash], |row| {
+              Ok(OnlinePlayer {
+                api_key_hash: api_key_hash.clone(),
+                player_name: row.get(0)?,
+                joined_at: row.get(1)?,
+              })
+            })?
             .collect::<std::result::Result<Vec<_>, _>>()?;
 
           result.push(ServerWithPlayers { name, players });
@@ -583,12 +589,18 @@ impl Database {
 
         // Get players
         let mut stmt = conn.prepare_cached(
-          "SELECT player_name FROM online_players WHERE api_key_hash = ?1 ORDER BY player_name",
+          "SELECT player_name, joined_at FROM online_players WHERE api_key_hash = ?1 ORDER BY player_name",
         )?;
 
         let players = stmt
-          .query_map(params![&api_key_hash], |row| row.get(0))?
-          .collect::<std::result::Result<Vec<String>, _>>()?;
+          .query_map(params![&api_key_hash], |row| {
+            Ok(OnlinePlayer {
+              api_key_hash: api_key_hash.clone(),
+              player_name: row.get(0)?,
+              joined_at: row.get(1)?,
+            })
+          })?
+          .collect::<std::result::Result<Vec<OnlinePlayer>, _>>()?;
 
         Ok(Ok(ServerWithPlayers {
           name: server_name,
@@ -808,14 +820,16 @@ mod tests {
     assert_eq!(servers[0].name, "Creative");
     assert!(servers[0].players.is_empty());
     assert_eq!(servers[1].name, "Survival");
-    assert_eq!(servers[1].players, vec!["Alex", "Steve"]);
+    let player_names: Vec<&str> = servers[1].players.iter().map(|p| p.player_name.as_str()).collect();
+    assert_eq!(player_names, vec!["Alex", "Steve"]);
 
     // Get specific server
     let server = db
       .get_server_with_players(12345, "Survival".to_string())
       .await
       .unwrap();
-    assert_eq!(server.players, vec!["Alex", "Steve"]);
+    let player_names: Vec<&str> = server.players.iter().map(|p| p.player_name.as_str()).collect();
+    assert_eq!(player_names, vec!["Alex", "Steve"]);
   }
 
   #[tokio::test]

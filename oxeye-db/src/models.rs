@@ -58,5 +58,5 @@ pub struct ServerSummary {
 #[derive(Debug, Clone)]
 pub struct ServerWithPlayers {
   pub name: String,
-  pub players: Vec<String>,
+  pub players: Vec<OnlinePlayer>,
 }
