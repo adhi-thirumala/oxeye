@@ -149,7 +149,7 @@ If no players join/leave after a backend restart, the server stays in "awaiting 
 ```
 Admin sees Discord: ⏳ Creative Server - awaiting sync
 Admin runs in-game: /oxeye sync
-Mod sends:          /sync [current players], gen=N
+Mod sends:          /sync [current players]
 Discord updates:    🟢 Creative Server - 3 players online
 ```
 
@@ -157,7 +157,7 @@ This complements automatic sync (on boot ID change) with a manual escape hatch.
 
 ---
 
-## Request Ordering with Generations
+## Request Ordering with Blocking Sync
 
 ### Problem
 
@@ -170,45 +170,55 @@ T=2: /join D arrives → state = [D]
 T=3: /sync arrives → state = [A, B, C] ← D is LOST
 ```
 
-### Solution: Generation Numbers
+### Solution: Blocking Sync with Event Queue
 
-Mod increments generation BEFORE sending sync. All events carry their generation.
+Mod blocks join/leave events while sync is in-flight, queues them, then drains after sync completes.
 
-```rust
+```java
 // Mod side
-fn sync(players: Vec<Player>) {
-    self.gen += 1;  // increment FIRST
-    send("/sync", players, self.gen);
+private final Queue<Runnable> pendingEvents = new ConcurrentLinkedQueue<>();
+private volatile boolean syncing = false;
+
+void sync(List<String> players) {
+    syncing = true;
+    sendSyncRequest(players)
+        .thenRun(() -> {
+            syncing = false;
+            // Drain queued events
+            while (!pendingEvents.isEmpty()) {
+                pendingEvents.poll().run();
+            }
+        });
 }
 
-fn join(player: Player) {
-    send("/join", player, self.gen);  // uses current gen
-}
-```
-
-Backend logic:
-```rust
-fn handle_sync(players, gen) {
-    current_gen = gen;
-    state = players;
-}
-
-fn handle_join(player, gen) {
-    if gen < current_gen {
-        return;  // stale event, drop it
+void onPlayerJoin(String name) {
+    if (syncing) {
+        pendingEvents.add(() -> sendJoinRequest(name));
+    } else {
+        sendJoinRequest(name);
     }
-    state.push(player);
 }
 ```
 
-### Why Drops Are Correct
+### Ordering Guarantee
 
-Dropped events are from OLD generations (before a sync). Examples:
+```
+1. Sync starts       → syncing=true
+2. Player C joins    → queued, not sent
+3. Sync completes    → syncing=false, drain queue
+4. /join C sent
 
-1. **MC server restarted:** Old gen events are from dead session
-2. **Backend restarted:** Mod detected via boot ID, sent new sync, old events are stale
+Backend receives: /sync, then /join C (guaranteed order)
+```
 
-Events within the SAME generation are never dropped - they're additive to the sync.
+### Tradeoffs
+
+| Aspect | Impact |
+|--------|--------|
+| Latency | Joins during sync delayed ~50-200ms |
+| Complexity | Mod only, backend stays simple |
+| Correctness | Guaranteed ordering |
+| Edge case | If sync fails, queued events still send (fine, additive) |
 
 ---
 
@@ -230,7 +240,7 @@ Events within the SAME generation are never dropped - they're additive to the sy
 |----------|------------|
 | Different servers | **Zero** (different keys) |
 | Same server, different players | Serialized on same key (unavoidable, correct) |
-| Sync vs join on same server | Handled by generations |
+| Sync vs join on same server | Handled by blocking sync queue |
 
 **Verdict:** Same-server serialization is unavoidable and fast (~100ns). Different servers never contend.
 
@@ -245,4 +255,4 @@ Events within the SAME generation are never dropped - they're additive to the sy
 | Player names | `Vec<ArrayString<16>>` | Contiguous, no heap |
 | Restart detection | Boot ID header | Zero extra requests |
 | Stale state tracking | `synced_since_boot` flag | Clear UX for Discord bot |
-| Request ordering | Generation numbers | Handles network reordering |
+| Request ordering | Blocking sync + event queue | Mod-side, guarantees order |
