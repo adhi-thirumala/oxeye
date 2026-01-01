@@ -2,7 +2,7 @@ mod error;
 mod models;
 
 pub use error::{DbError, Result};
-pub use models::{OnlinePlayer, PendingLink, Server, ServerSummary, ServerWithPlayers};
+pub use models::{OnlinePlayer, PendingLink, PlayerInfo, Server, ServerSummary, ServerWithPlayers};
 
 use std::path::Path;
 use tokio_rusqlite::Connection;
@@ -547,10 +547,9 @@ impl Database {
 
         let mut result = Vec::new();
         for (api_key_hash, name) in servers {
-          let players: Vec<OnlinePlayer> = player_stmt
+          let players: Vec<PlayerInfo> = player_stmt
             .query_map(params![&api_key_hash], |row| {
-              Ok(OnlinePlayer {
-                api_key_hash: api_key_hash.clone(),
+              Ok(PlayerInfo {
                 player_name: row.get(0)?,
                 joined_at: row.get(1)?,
               })
@@ -594,13 +593,12 @@ impl Database {
 
         let players = stmt
           .query_map(params![&api_key_hash], |row| {
-            Ok(OnlinePlayer {
-              api_key_hash: api_key_hash.clone(),
+            Ok(PlayerInfo {
               player_name: row.get(0)?,
               joined_at: row.get(1)?,
             })
           })?
-          .collect::<std::result::Result<Vec<OnlinePlayer>, _>>()?;
+          .collect::<std::result::Result<Vec<PlayerInfo>, _>>()?;
 
         Ok(Ok(ServerWithPlayers {
           name: server_name,
