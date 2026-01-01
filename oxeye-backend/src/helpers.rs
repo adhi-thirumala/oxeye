@@ -33,16 +33,16 @@ pub fn format_time_online(duration_secs: i64) -> String {
   const DAY: i64 = 24 * HOUR;
 
   if duration_secs < MINUTE {
-    format!("{}s", duration_secs)
+    format!("{} seconds", duration_secs)
   } else if duration_secs < HOUR {
     let minutes = duration_secs / MINUTE;
-    format!("{}m", minutes)
+    format!("{} minutes", minutes)
   } else if duration_secs < DAY {
     let hours = duration_secs / HOUR;
-    format!("{}h", hours)
+    format!("{} hours", hours)
   } else {
     let days = duration_secs / DAY;
-    format!("{}d", days)
+    format!("{} days", days)
   }
 }
 
