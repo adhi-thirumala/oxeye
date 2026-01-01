@@ -3,5 +3,6 @@ COPY --from=alpine:latest /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 COPY build/oxeye-backend /oxeye-backend
 ENV DATABASE_PATH=/oxeye.db
 ENV PORT=3000
+ENV SQLITE_TMPDIR=/
 EXPOSE 3000
 ENTRYPOINT ["/oxeye-backend"]
