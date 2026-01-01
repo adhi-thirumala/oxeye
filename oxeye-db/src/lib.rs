@@ -849,4 +849,125 @@ mod tests {
       .await;
     assert!(result.is_err());
   }
+
+  #[tokio::test]
+  async fn test_player_join_times_and_time_online_calculation() {
+    let db = Database::open_in_memory().await.unwrap();
+
+    db.create_server("hash1".to_string(), "Survival".to_string(), 12345)
+      .await
+      .unwrap();
+
+    // Simulate different join times
+    let base_time = 1700000000; // Fixed timestamp
+    let player1_join_time = base_time;
+    let player2_join_time = base_time + 300; // 5 minutes later
+    let player3_join_time = base_time + 3600; // 1 hour later
+
+    // Players join at different times
+    db.player_join("hash1".to_string(), "Alice".to_string(), player1_join_time)
+      .await
+      .unwrap();
+    db.player_join("hash1".to_string(), "Bob".to_string(), player2_join_time)
+      .await
+      .unwrap();
+    db.player_join("hash1".to_string(), "Charlie".to_string(), player3_join_time)
+      .await
+      .unwrap();
+
+    // Retrieve players
+    let server = db
+      .get_server_with_players(12345, "Survival".to_string())
+      .await
+      .unwrap();
+
+    assert_eq!(server.players.len(), 3);
+
+    // Verify join times are stored correctly
+    let alice = server.players.iter().find(|p| p.player_name == "Alice").unwrap();
+    let bob = server.players.iter().find(|p| p.player_name == "Bob").unwrap();
+    let charlie = server.players.iter().find(|p| p.player_name == "Charlie").unwrap();
+
+    assert_eq!(alice.joined_at, player1_join_time);
+    assert_eq!(bob.joined_at, player2_join_time);
+    assert_eq!(charlie.joined_at, player3_join_time);
+
+    // Simulate current time being 2 hours after base_time
+    let current_time = base_time + 7200;
+
+    // Calculate time online for each player
+    let alice_time_online = current_time - alice.joined_at;
+    let bob_time_online = current_time - bob.joined_at;
+    let charlie_time_online = current_time - charlie.joined_at;
+
+    // Verify time calculations
+    assert_eq!(alice_time_online, 7200); // 2 hours = 7200 seconds
+    assert_eq!(bob_time_online, 6900); // 1 hour 55 minutes = 6900 seconds
+    assert_eq!(charlie_time_online, 3600); // 1 hour = 3600 seconds
+
+    // Verify time formatting would work correctly
+    // Alice: 7200s = 2h
+    // Bob: 6900s = 1h 55m = 1h (truncated)
+    // Charlie: 3600s = 1h
+    assert!(alice_time_online >= 3600); // Should show hours
+    assert!(bob_time_online >= 3600); // Should show hours
+    assert!(charlie_time_online >= 3600); // Should show hours
+  }
+
+  #[tokio::test]
+  async fn test_player_time_online_with_join_leave() {
+    let db = Database::open_in_memory().await.unwrap();
+
+    db.create_server("hash1".to_string(), "Survival".to_string(), 12345)
+      .await
+      .unwrap();
+
+    let base_time = 1700000000;
+
+    // Alice joins at base_time
+    db.player_join("hash1".to_string(), "Alice".to_string(), base_time)
+      .await
+      .unwrap();
+
+    // Bob joins 5 minutes later
+    let bob_join_time = base_time + 300;
+    db.player_join("hash1".to_string(), "Bob".to_string(), bob_join_time)
+      .await
+      .unwrap();
+
+    // Charlie joins 30 minutes later
+    let charlie_join_time = base_time + 1800;
+    db.player_join("hash1".to_string(), "Charlie".to_string(), charlie_join_time)
+      .await
+      .unwrap();
+
+    // Bob leaves after 10 minutes (doesn't affect others' join times)
+    db.player_leave("hash1".to_string(), "Bob".to_string())
+      .await
+      .unwrap();
+
+    // Retrieve remaining players
+    let server = db
+      .get_server_with_players(12345, "Survival".to_string())
+      .await
+      .unwrap();
+
+    assert_eq!(server.players.len(), 2);
+
+    // Verify Alice and Charlie's join times are preserved
+    let alice = server.players.iter().find(|p| p.player_name == "Alice").unwrap();
+    let charlie = server.players.iter().find(|p| p.player_name == "Charlie").unwrap();
+
+    assert_eq!(alice.joined_at, base_time);
+    assert_eq!(charlie.joined_at, charlie_join_time);
+
+    // Simulate current time being 1 hour after base_time
+    let current_time = base_time + 3600;
+
+    let alice_time_online = current_time - alice.joined_at;
+    let charlie_time_online = current_time - charlie.joined_at;
+
+    assert_eq!(alice_time_online, 3600); // 1 hour
+    assert_eq!(charlie_time_online, 1800); // 30 minutes (joined 30 min after Alice)
+  }
 }
