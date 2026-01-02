@@ -811,7 +811,7 @@ The implementation will be considered successful if:
 
 ## Future Enhancements (Out of Scope)
 
-- 3D isometric head renders (using nmsr-rs)
+- 3D isometric head renders (would require external service like nmsr-rs)
 - Full body renders
 - Cape rendering
 - Multiple render sizes (32x32, 128x128)
