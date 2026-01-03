@@ -78,7 +78,7 @@ Vec<String>:          [ptr|len|cap] → heap (scattered)
 Vec<ArrayString<16>>: [bytes inline] [bytes inline] (contiguous)
 ```
 
-Fully contiguous memory = CPU prefetcher friendly, zero pointer chasing.
+Fully contiguous memory = CPU prefetcher friendly, zero pointer chasing. make sure to swap and pop when leaving such that we dont shift everything down
 
 ### Final Structure
 
