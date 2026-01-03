@@ -20,12 +20,6 @@ pub enum ValidationError {
 
     #[error("Player list too large (max {max} players, got {actual})")]
     PlayerListTooLarge { max: usize, actual: usize },
-
-    #[error("Server name cannot be empty")]
-    ServerNameEmpty,
-
-    #[error("Server name too long (max 100 characters, got {0})")]
-    ServerNameTooLong(usize),
 }
 
 /// Validates a Minecraft player name
@@ -212,32 +206,6 @@ mod tests {
         assert_eq!(
             validate_player_list(&players),
             Err(ValidationError::PlayerNameEmpty)
-        );
-    }
-
-    // Server name validation tests
-    #[test]
-    fn test_valid_server_names() {
-        assert!(validate_server_name("MyServer").is_ok());
-        assert!(validate_server_name("Server 1").is_ok());
-        assert!(validate_server_name("Production-Server-2024").is_ok());
-        assert!(validate_server_name("a").is_ok());
-    }
-
-    #[test]
-    fn test_empty_server_name() {
-        assert_eq!(
-            validate_server_name(""),
-            Err(ValidationError::ServerNameEmpty)
-        );
-    }
-
-    #[test]
-    fn test_server_name_too_long() {
-        let long_name = "a".repeat(101);
-        assert_eq!(
-            validate_server_name(&long_name),
-            Err(ValidationError::ServerNameTooLong(101))
         );
     }
 }
