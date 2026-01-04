@@ -47,11 +47,14 @@ pub(crate) async fn connect(
   state
     .db
     .create_server(
-      api_key_hash,
+      api_key_hash.clone(),
       pending_link.server_name,
       pending_link.guild_id,
     )
     .await?;
+
+  // Register in cache
+  state.cache.register_server(&api_key_hash).await?;
 
   Ok((StatusCode::CREATED, Json(ConnResponse { api_key })))
 }
@@ -68,9 +71,10 @@ pub(crate) async fn join(
   let api_key = auth.token().to_string();
   let api_key_hash = crate::helpers::hash_api_key(&api_key);
 
+  // Update cache (validates server exists)
   state
-    .db
-    .player_join(api_key_hash, payload.player, now())
+    .cache
+    .player_join(&api_key_hash, &payload.player, now())
     .await?;
 
   Ok(StatusCode::OK)
@@ -87,7 +91,8 @@ pub(crate) async fn leave(
   let api_key = auth.token().to_string();
   let api_key_hash = crate::helpers::hash_api_key(&api_key);
 
-  state.db.player_leave(api_key_hash, payload.player).await?;
+  // Update cache (validates server exists)
+  state.cache.player_leave(&api_key_hash, &payload.player).await?;
 
   Ok(StatusCode::OK)
 }
@@ -103,9 +108,10 @@ pub(crate) async fn sync(
   let api_key = auth.token().to_string();
   let api_key_hash = crate::helpers::hash_api_key(&api_key);
 
+  // Update cache (validates server exists)
   state
-    .db
-    .sync_players(api_key_hash, payload.players, now())
+    .cache
+    .sync_players(&api_key_hash, &payload.players, now())
     .await?;
 
   Ok(StatusCode::OK)
@@ -118,6 +124,9 @@ pub(crate) async fn disconnect(
 ) -> Result<impl IntoResponse, AppError> {
   let api_key = auth.token().to_string();
   let api_key_hash = crate::helpers::hash_api_key(&api_key);
+
+  // Unregister from cache first
+  state.cache.unregister_server(&api_key_hash).await;
 
   state.db.delete_server_by_api_key(api_key_hash).await?;
 

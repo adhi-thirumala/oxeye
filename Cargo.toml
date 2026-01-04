@@ -20,7 +20,7 @@ tower_governor = { version = "0.8.0", features = ["axum"] }
 tower-http = { version = "0.6.8", features = ["cors", "trace", "limit", "timeout"] }
 
 # Database
-tokio-rusqlite = { version = "0.7", features = ["bundled"]}
+tokio-rusqlite = { version = "0.7", features = ["bundled"] }
 oxeye-db = { path = "oxeye-db" }
 
 # Serialization
@@ -35,5 +35,11 @@ thiserror = "2.0.17"
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.22", features = ["env-filter"] }
 
+rand = "0.9.2"
+
 # Discord
 poise = "0.6.1"
+
+# Bespoke Data Structures
+scc = "3.4.8"
+arrayvec = "0.7.6"

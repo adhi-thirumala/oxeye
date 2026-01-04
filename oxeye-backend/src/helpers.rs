@@ -52,51 +52,51 @@ mod tests {
 
   #[test]
   fn test_format_time_online_zero_seconds() {
-    assert_eq!(format_time_online(0), "0s");
+    assert_eq!(format_time_online(0), "0 seconds");
   }
 
   #[test]
   fn test_format_time_online_seconds() {
-    assert_eq!(format_time_online(1), "1s");
-    assert_eq!(format_time_online(30), "30s");
-    assert_eq!(format_time_online(59), "59s");
+    assert_eq!(format_time_online(1), "1 seconds");
+    assert_eq!(format_time_online(30), "30 seconds");
+    assert_eq!(format_time_online(59), "59 seconds");
   }
 
   #[test]
   fn test_format_time_online_minutes() {
-    assert_eq!(format_time_online(60), "1m");
-    assert_eq!(format_time_online(90), "1m"); // 1 minute 30 seconds -> 1m
-    assert_eq!(format_time_online(120), "2m");
-    assert_eq!(format_time_online(1800), "30m");
-    assert_eq!(format_time_online(3599), "59m"); // 59 minutes 59 seconds -> 59m
+    assert_eq!(format_time_online(60), "1 minutes");
+    assert_eq!(format_time_online(90), "1 minutes"); // 1 minute 30 seconds -> 1 minutes
+    assert_eq!(format_time_online(120), "2 minutes");
+    assert_eq!(format_time_online(1800), "30 minutes");
+    assert_eq!(format_time_online(3599), "59 minutes"); // 59 minutes 59 seconds -> 59 minutes
   }
 
   #[test]
   fn test_format_time_online_hours() {
-    assert_eq!(format_time_online(3600), "1h");
-    assert_eq!(format_time_online(5400), "1h"); // 1 hour 30 minutes -> 1h
-    assert_eq!(format_time_online(7200), "2h");
-    assert_eq!(format_time_online(43200), "12h");
-    assert_eq!(format_time_online(86399), "23h"); // 23 hours 59 minutes -> 23h
+    assert_eq!(format_time_online(3600), "1 hours");
+    assert_eq!(format_time_online(5400), "1 hours"); // 1 hour 30 minutes -> 1 hours
+    assert_eq!(format_time_online(7200), "2 hours");
+    assert_eq!(format_time_online(43200), "12 hours");
+    assert_eq!(format_time_online(86399), "23 hours"); // 23 hours 59 minutes -> 23 hours
   }
 
   #[test]
   fn test_format_time_online_days() {
-    assert_eq!(format_time_online(86400), "1d");
-    assert_eq!(format_time_online(129600), "1d"); // 1 day 12 hours -> 1d
-    assert_eq!(format_time_online(172800), "2d");
-    assert_eq!(format_time_online(604800), "7d");
-    assert_eq!(format_time_online(2592000), "30d");
+    assert_eq!(format_time_online(86400), "1 days");
+    assert_eq!(format_time_online(129600), "1 days"); // 1 day 12 hours -> 1 days
+    assert_eq!(format_time_online(172800), "2 days");
+    assert_eq!(format_time_online(604800), "7 days");
+    assert_eq!(format_time_online(2592000), "30 days");
   }
 
   #[test]
   fn test_format_time_online_boundary_cases() {
     // Test exact boundaries
-    assert_eq!(format_time_online(59), "59s"); // Just before 1 minute
-    assert_eq!(format_time_online(60), "1m"); // Exactly 1 minute
-    assert_eq!(format_time_online(3599), "59m"); // Just before 1 hour
-    assert_eq!(format_time_online(3600), "1h"); // Exactly 1 hour
-    assert_eq!(format_time_online(86399), "23h"); // Just before 1 day
-    assert_eq!(format_time_online(86400), "1d"); // Exactly 1 day
+    assert_eq!(format_time_online(59), "59 seconds"); // Just before 1 minute
+    assert_eq!(format_time_online(60), "1 minutes"); // Exactly 1 minute
+    assert_eq!(format_time_online(3599), "59 minutes"); // Just before 1 hour
+    assert_eq!(format_time_online(3600), "1 hours"); // Exactly 1 hour
+    assert_eq!(format_time_online(86399), "23 hours"); // Just before 1 day
+    assert_eq!(format_time_online(86400), "1 days"); // Exactly 1 day
   }
 }

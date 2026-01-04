@@ -33,6 +33,7 @@ impl ErrorResponse {
 #[derive(Debug)]
 pub enum AppError {
   DatabaseError(oxeye_db::DbError),
+  CacheError(crate::cache::CacheError),
   ValidationError(String),
 }
 
@@ -74,6 +75,24 @@ impl IntoResponse for AppError {
         let error_response = ErrorResponse::new(message);
         (status, Json(error_response)).into_response()
       }
+      AppError::CacheError(cache_err) => {
+        tracing::error!(?cache_err, "Cache error occurred");
+
+        let (status, message) = match cache_err {
+          crate::cache::CacheError::ServerNotFound => {
+            (StatusCode::UNAUTHORIZED, "Invalid or expired API key")
+          }
+          crate::cache::CacheError::PlayerNameTooLong => {
+            (StatusCode::BAD_REQUEST, "Player name exceeds 16 characters")
+          }
+          crate::cache::CacheError::ServerAlreadyExists => {
+            (StatusCode::CONFLICT, "Server already registered")
+          }
+        };
+
+        let error_response = ErrorResponse::new(message);
+        (status, Json(error_response)).into_response()
+      }
       AppError::ValidationError(msg) => {
         tracing::warn!(validation_error = %msg, "Validation failed");
         let error_response = ErrorResponse::new(msg);
@@ -86,6 +105,12 @@ impl IntoResponse for AppError {
 impl From<oxeye_db::DbError> for AppError {
   fn from(err: oxeye_db::DbError) -> Self {
     AppError::DatabaseError(err)
+  }
+}
+
+impl From<crate::cache::CacheError> for AppError {
+  fn from(err: crate::cache::CacheError) -> Self {
+    AppError::CacheError(err)
   }
 }
 

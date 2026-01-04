@@ -1,3 +1,4 @@
+pub mod cache;
 pub mod config;
 mod error;
 pub mod helpers;
@@ -5,22 +6,23 @@ mod routes;
 mod validation;
 
 use axum::{
-  http::StatusCode,
-  routing::{get, post},
-  Router,
+    Router,
+    http::StatusCode,
+    routing::{get, post},
 };
+use oxeye_db::Database;
 use std::sync::Arc;
 use std::time::Duration;
 use tower_governor::{
-    governor::GovernorConfigBuilder,
-    key_extractor::SmartIpKeyExtractor,
-    GovernorLayer,
+    GovernorLayer, governor::GovernorConfigBuilder, key_extractor::SmartIpKeyExtractor,
 };
-use tower_http::limit::RequestBodyLimitLayer;
-use tower_http::timeout::TimeoutLayer;
+use tower_http::{limit::RequestBodyLimitLayer, timeout::TimeoutLayer};
+
+use crate::cache::OnlineCache;
 
 pub struct AppState {
-    pub db: oxeye_db::Database,
+    pub db: Database,
+    pub cache: OnlineCache,
 }
 
 /// Rate limiting configuration
@@ -53,15 +55,13 @@ impl Default for RateLimitConfig {
     }
 }
 
-/// Create the application router with the given database and configuration
+/// Create the application router with the given state and configuration
 pub fn create_app(
-    db: oxeye_db::Database,
+    state: Arc<AppState>,
     request_body_limit: usize,
     request_timeout: Duration,
     rate_limit: RateLimitConfig,
 ) -> Router {
-    let state = Arc::new(AppState { db });
-
     // Strict rate limit for /connect - only needed once per server setup
     let connect_governor = GovernorConfigBuilder::default()
         .per_second(rate_limit.connect_per_min / 60 + 1) // Convert per-min to per-sec, min 1

@@ -20,6 +20,7 @@ pub async fn connect(
     .get();
   let code = helpers::generate_code();
   data
+    .state
     .db
     .create_pending_link(code.clone(), guild_id, name, now())
     .await?;
@@ -49,7 +50,7 @@ pub async fn list(ctx: Context<'_>) -> Result<(), Error> {
     .guild_id()
     .ok_or("This command can only be used in a server")?
     .get();
-  let servers = data.db.get_servers_by_guild(guild_id).await?;
+  let servers = data.state.db.get_servers_by_guild(guild_id).await?;
   let embed = CreateEmbed::default()
     .title("Linked Minecraft Servers")
     .color(0x5865F2);
@@ -78,28 +79,48 @@ pub async fn status(
     .guild_id()
     .ok_or("This command can only be used in a server")?
     .get();
-  let server = data.db.get_server_with_players(guild_id, name).await?;
+
+  // Get server from DB to validate it exists and get api_key_hash
+  let server = data
+    .state
+    .db
+    .get_server_by_guild_and_name(guild_id, &name)
+    .await?
+    .ok_or("Server not found")?;
+
+  // Get players from cache
+  let (players, synced) = data
+    .state
+    .cache
+    .get_server_state(&server.api_key_hash)
+    .await
+    .unwrap_or((Vec::new(), false));
+
   let embed = CreateEmbed::default()
     .title(format!("Status: {}", server.name))
     .color(0x5865F2);
-  let embed = if server.players.is_empty() {
+
+  let embed = if !synced {
+    embed
+      .description("⏳ Awaiting sync from Minecraft server")
+      .field("Players", "Unknown", true)
+  } else if players.is_empty() {
     embed
       .description("No players online")
       .field("Players", "0", true)
   } else {
     let current_time = now();
-    let player_list: String = server
-      .players
+    let player_list: String = players
       .iter()
       .map(|p| {
         let time_online = current_time - p.joined_at;
         let formatted_time = format_time_online(time_online);
-        format!("- {} (Joined {} ago)", p.player_name, formatted_time)
+        format!("- {} (Joined {} ago)", p.name, formatted_time)
       })
       .collect::<Vec<_>>()
       .join("\n");
     embed
-      .field("Online", format!("{}", server.players.len()), true)
+      .field("Online", format!("{}", players.len()), true)
       .field("Players", player_list, false)
   };
   ctx.send(CreateReply::default().embed(embed)).await?;
