@@ -5,16 +5,14 @@ mod routes;
 mod validation;
 
 use axum::{
-  http::StatusCode,
-  routing::{get, post},
-  Router,
+    Router,
+    http::StatusCode,
+    routing::{get, post},
 };
 use std::sync::Arc;
 use std::time::Duration;
 use tower_governor::{
-    governor::GovernorConfigBuilder,
-    key_extractor::SmartIpKeyExtractor,
-    GovernorLayer,
+    GovernorLayer, governor::GovernorConfigBuilder, key_extractor::SmartIpKeyExtractor,
 };
 use tower_http::limit::RequestBodyLimitLayer;
 use tower_http::timeout::TimeoutLayer;

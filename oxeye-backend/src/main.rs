@@ -1,7 +1,7 @@
 mod discord_commands;
-use oxeye_backend::{create_app, RateLimitConfig};
+use oxeye_backend::{RateLimitConfig, create_app};
 use oxeye_db::Database;
-use poise::{serenity_prelude as serenity, Framework, FrameworkOptions};
+use poise::{Framework, FrameworkOptions, serenity_prelude as serenity};
 use std::net::SocketAddr;
 use tokio::net::TcpListener;
 
@@ -22,21 +22,21 @@ async fn main() {
     // Load configuration from environment variables or use defaults
     let config = oxeye_backend::config::Config::from_env();
     tracing::info!(
-    "Configuration: port={}, db_path={}, body_limit={}KB, timeout={}s",
-    config.port,
-    config.database_path,
-    config.request_body_limit / 1024,
-    config.request_timeout.as_secs()
-  );
+        "Configuration: port={}, db_path={}, body_limit={}KB, timeout={}s",
+        config.port,
+        config.database_path,
+        config.request_body_limit / 1024,
+        config.request_timeout.as_secs()
+    );
     tracing::info!(
-    "Rate limits: connect={}/min (burst {}), player={}/sec (burst {}), general={}/sec (burst {})",
-    config.rate_limit_connect_per_min,
-    config.rate_limit_connect_burst,
-    config.rate_limit_player_per_sec,
-    config.rate_limit_player_burst,
-    config.rate_limit_general_per_sec,
-    config.rate_limit_general_burst
-  );
+        "Rate limits: connect={}/min (burst {}), player={}/sec (burst {}), general={}/sec (burst {})",
+        config.rate_limit_connect_per_min,
+        config.rate_limit_connect_burst,
+        config.rate_limit_player_per_sec,
+        config.rate_limit_player_burst,
+        config.rate_limit_general_per_sec,
+        config.rate_limit_general_burst
+    );
     let db = Database::open(&config.database_path).await.unwrap();
     let rate_limit = RateLimitConfig {
         connect_per_min: config.rate_limit_connect_per_min,
@@ -57,8 +57,7 @@ async fn main() {
     tracing::info!("Server listening on {}", addr);
 
     // send messages, send messages in threads, embed links, attach files, use external stickers and emoji, add reactions
-    let intents =
-        serenity::GatewayIntents::default();
+    let intents = serenity::GatewayIntents::default();
 
     let framework = Framework::builder()
         .options(FrameworkOptions {
@@ -70,19 +69,19 @@ async fn main() {
             pre_command: |ctx| {
                 Box::pin(async move {
                     tracing::info!(
-            "Executing command '{}' by user '{}'",
-            ctx.command().name,
-            ctx.author().name
-          );
+                        "Executing command '{}' by user '{}'",
+                        ctx.command().name,
+                        ctx.author().name
+                    );
                 })
             },
             post_command: |ctx| {
                 Box::pin(async move {
                     tracing::info!(
-            "Finished command '{}' by user '{}'",
-            ctx.command().name,
-            ctx.author().name
-          );
+                        "Finished command '{}' by user '{}'",
+                        ctx.command().name,
+                        ctx.author().name
+                    );
                 })
             },
             ..Default::default()
@@ -100,15 +99,15 @@ async fn main() {
         .await
         .expect("Error creating Discord client");
     tokio::select! {
-      result = axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>()) => {
-          if let Err(e) = result {
-              tracing::error!("Axum server error: {}", e);
-          }
-      }
-      result = client.start() => {
-          if let Err(e) = result {
-              tracing::error!("Discord client error: {:?}", e);
-          }
-      }
-  }
+        result = axum::serve(listener, app.into_make_service_with_connect_info::<SocketAddr>()) => {
+            if let Err(e) = result {
+                tracing::error!("Axum server error: {}", e);
+            }
+        }
+        result = client.start() => {
+            if let Err(e) = result {
+                tracing::error!("Discord client error: {:?}", e);
+            }
+        }
+    }
 }

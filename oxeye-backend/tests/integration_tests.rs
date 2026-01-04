@@ -3,9 +3,9 @@ use axum::{
     http::{Request, StatusCode},
 };
 use http_body_util::BodyExt;
-use oxeye_backend::{create_app, helpers, RateLimitConfig};
+use oxeye_backend::{RateLimitConfig, create_app, helpers};
 use oxeye_db::PlayerName;
-use serde_json::{json, Value};
+use serde_json::{Value, json};
 use tower::ServiceExt;
 // for `oneshot` method
 
@@ -154,7 +154,7 @@ async fn test_connect_with_nonexistent_code() {
         Some(json!({ "code": "oxeye-invalid" })),
         None,
     )
-        .await;
+    .await;
 
     // THEN: Should return 404 Not Found
     assert_eq!(status, StatusCode::NOT_FOUND);
@@ -238,9 +238,9 @@ async fn test_connect_with_server_name_conflict() {
     // THEN: Should return error for name conflict
     assert!(result.is_err());
     assert!(matches!(
-    result.unwrap_err(),
-    oxeye_db::DbError::ServerNameConflict
-  ));
+        result.unwrap_err(),
+        oxeye_db::DbError::ServerNameConflict
+    ));
 }
 
 #[tokio::test]
@@ -257,7 +257,7 @@ async fn test_connect_with_invalid_code_format() {
         Some(json!({ "code": "invalid-format" })),
         None,
     )
-        .await;
+    .await;
 
     // THEN: Should return 400 Bad Request
     assert_eq!(status, StatusCode::BAD_REQUEST);
@@ -316,7 +316,7 @@ async fn test_join_success() {
         Some(json!({ "player": "Steve" })),
         Some(&api_key),
     )
-        .await;
+    .await;
 
     // THEN: Should return 200 OK
     assert_eq!(status, StatusCode::OK);
@@ -336,7 +336,7 @@ async fn test_join_with_invalid_api_key() {
         Some(json!({ "player": "Steve" })),
         Some("oxeye-sk-invalid12345678901234567890"),
     )
-        .await;
+    .await;
 
     // THEN: Should return 401 Unauthorized
     assert_eq!(status, StatusCode::UNAUTHORIZED);
@@ -398,7 +398,7 @@ async fn test_join_same_player_twice() {
         Some(json!({ "player": "Steve" })),
         Some(&api_key),
     )
-        .await;
+    .await;
 
     // THEN: Should return 200 OK (upsert behavior - replaces old record)
     assert_eq!(status, StatusCode::OK);
@@ -427,7 +427,7 @@ async fn test_join_multiple_players() {
             Some(json!({ "player": player })),
             Some(&api_key),
         )
-            .await;
+        .await;
 
         // THEN: Each should return 200 OK
         assert_eq!(status, StatusCode::OK);
@@ -457,7 +457,7 @@ async fn test_join_with_empty_player_name() {
         Some(json!({ "player": "" })),
         Some(&api_key),
     )
-        .await;
+    .await;
 
     // THEN: Should return 400 Bad Request (validation now enforced)
     assert_eq!(status, StatusCode::BAD_REQUEST);
@@ -486,7 +486,7 @@ async fn test_join_with_invalid_player_name_chars() {
         Some(json!({ "player": "Player-123" })),
         Some(&api_key),
     )
-        .await;
+    .await;
 
     // THEN: Should return 400 Bad Request
     assert_eq!(status, StatusCode::BAD_REQUEST);
@@ -515,7 +515,7 @@ async fn test_join_with_too_long_player_name() {
         Some(json!({ "player": "12345678901234567" })),
         Some(&api_key),
     )
-        .await;
+    .await;
 
     // THEN: Should return 422 Unprocessable Entity (ArrayString<16> can't deserialize > 16 chars)
     assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
@@ -553,7 +553,7 @@ async fn test_leave_success() {
         Some(json!({ "player": "Steve" })),
         Some(&api_key),
     )
-        .await;
+    .await;
 
     // THEN: Should return 200 OK
     assert_eq!(status, StatusCode::OK);
@@ -582,7 +582,7 @@ async fn test_leave_player_not_online() {
         Some(json!({ "player": "Steve" })),
         Some(&api_key),
     )
-        .await;
+    .await;
 
     // THEN: Should return 200 OK (idempotent operation)
     assert_eq!(status, StatusCode::OK);
@@ -602,7 +602,7 @@ async fn test_leave_with_invalid_api_key() {
         Some(json!({ "player": "Steve" })),
         Some("oxeye-sk-invalid12345678901234567890"),
     )
-        .await;
+    .await;
 
     // THEN: Should return 401 Unauthorized
     assert_eq!(status, StatusCode::UNAUTHORIZED);
@@ -672,7 +672,7 @@ async fn test_sync_success() {
         Some(json!({ "players": ["Notch", "Jeb"] })),
         Some(&api_key),
     )
-        .await;
+    .await;
 
     // THEN: Should return 200 OK
     assert_eq!(status, StatusCode::OK);
@@ -706,7 +706,7 @@ async fn test_sync_empty_list() {
         Some(json!({ "players": [] })),
         Some(&api_key),
     )
-        .await;
+    .await;
 
     // THEN: Should return 200 OK
     assert_eq!(status, StatusCode::OK);
@@ -726,7 +726,7 @@ async fn test_sync_with_invalid_api_key() {
         Some(json!({ "players": ["Steve"] })),
         Some("oxeye-sk-invalid12345678901234567890"),
     )
-        .await;
+    .await;
 
     // THEN: Should return 401 Unauthorized
     assert_eq!(status, StatusCode::UNAUTHORIZED);
@@ -762,7 +762,7 @@ async fn test_sync_replaces_entire_list() {
         Some(json!({ "players": ["Notch", "Jeb", "Dinnerbone"] })),
         Some(&api_key),
     )
-        .await;
+    .await;
 
     // THEN: Should return 200 OK
     assert_eq!(status, StatusCode::OK);
@@ -804,7 +804,7 @@ async fn test_sync_with_large_player_list() {
         Some(json!({ "players": players })),
         Some(&api_key),
     )
-        .await;
+    .await;
 
     // THEN: Should return 400 Bad Request (list too large - validation enforced)
     assert_eq!(status, StatusCode::BAD_REQUEST);
@@ -837,7 +837,7 @@ async fn test_sync_with_oversized_payload() {
         Some(json!({ "players": players })),
         Some(&api_key),
     )
-        .await;
+    .await;
 
     // THEN: Should return 413 Payload Too Large
     assert_eq!(status, StatusCode::PAYLOAD_TOO_LARGE);
@@ -867,7 +867,7 @@ async fn test_join_with_oversized_player_name() {
         Some(json!({ "player": huge_name })),
         Some(&api_key),
     )
-        .await;
+    .await;
 
     // THEN: Should return 413 Payload Too Large
     assert_eq!(status, StatusCode::PAYLOAD_TOO_LARGE);
@@ -913,7 +913,7 @@ async fn test_status_invalid_api_key() {
         None,
         Some("oxeye-sk-invalid12345678901234567890"),
     )
-        .await;
+    .await;
 
     // THEN: Should return 401 Unauthorized
     assert_eq!(status, StatusCode::UNAUTHORIZED);
@@ -1005,7 +1005,7 @@ async fn test_disconnect_with_invalid_api_key() {
         None,
         Some("oxeye-sk-invalid12345678901234567890"),
     )
-        .await;
+    .await;
 
     // THEN: Should return 401 Unauthorized
     assert_eq!(status, StatusCode::UNAUTHORIZED);
@@ -1097,7 +1097,7 @@ async fn test_complete_server_lifecycle() {
         Some(json!({ "player": "Steve" })),
         Some(&api_key),
     )
-        .await;
+    .await;
     assert_eq!(status, StatusCode::OK);
 
     // Step 4: Another player joins
@@ -1109,7 +1109,7 @@ async fn test_complete_server_lifecycle() {
         Some(json!({ "player": "Alex" })),
         Some(&api_key),
     )
-        .await;
+    .await;
     assert_eq!(status, StatusCode::OK);
 
     // Step 5: One player leaves
@@ -1121,7 +1121,7 @@ async fn test_complete_server_lifecycle() {
         Some(json!({ "player": "Steve" })),
         Some(&api_key),
     )
-        .await;
+    .await;
     assert_eq!(status, StatusCode::OK);
 
     // Step 6: Sync with new player list
@@ -1133,7 +1133,7 @@ async fn test_complete_server_lifecycle() {
         Some(json!({ "players": ["Alex", "Notch", "Jeb"] })),
         Some(&api_key),
     )
-        .await;
+    .await;
     assert_eq!(status, StatusCode::OK);
 
     // Verify final state
@@ -1166,7 +1166,7 @@ async fn test_multiple_servers_in_same_guild() {
         Some(json!({ "code": code1 })),
         None,
     )
-        .await;
+    .await;
     assert_eq!(status, StatusCode::CREATED);
     let api_key1 = body["api_key"].as_str().unwrap().to_string();
 
@@ -1184,7 +1184,7 @@ async fn test_multiple_servers_in_same_guild() {
         Some(json!({ "code": code2 })),
         None,
     )
-        .await;
+    .await;
     assert_eq!(status, StatusCode::CREATED);
     let api_key2 = body["api_key"].as_str().unwrap().to_string();
 
@@ -1197,7 +1197,7 @@ async fn test_multiple_servers_in_same_guild() {
         Some(json!({ "player": "Steve" })),
         Some(&api_key1),
     )
-        .await;
+    .await;
     assert_eq!(status, StatusCode::OK);
 
     let app = create_test_app(db.clone());
@@ -1208,7 +1208,7 @@ async fn test_multiple_servers_in_same_guild() {
         Some(json!({ "player": "Alex" })),
         Some(&api_key2),
     )
-        .await;
+    .await;
     assert_eq!(status, StatusCode::OK);
 
     // THEN: Each server should have its own player list
@@ -1248,7 +1248,7 @@ async fn test_api_key_isolation() {
         Some(json!({ "code": code1 })),
         None,
     )
-        .await;
+    .await;
     let api_key1 = body["api_key"].as_str().unwrap().to_string();
 
     // Server 2
@@ -1264,7 +1264,7 @@ async fn test_api_key_isolation() {
         Some(json!({ "code": code2 })),
         None,
     )
-        .await;
+    .await;
     let _api_key2 = body["api_key"].as_str().unwrap().to_string();
 
     // WHEN: Server 1 tries to use Server 2's endpoint with wrong API key
@@ -1276,7 +1276,7 @@ async fn test_api_key_isolation() {
         Some(json!({ "player": "Hacker" })),
         Some(&api_key1), // Using Server 1's key for Server 2's player
     )
-        .await;
+    .await;
 
     // THEN: Should succeed (each server has its own player list)
     // This is expected behavior - API keys are for server identification, not authorization
