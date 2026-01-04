@@ -14,143 +14,130 @@ use std::sync::Arc;
 
 #[derive(Deserialize)]
 pub(crate) struct ConnRequest {
-  code: String,
+    code: String,
 }
 
 #[derive(Serialize)]
 pub(crate) struct ConnResponse {
-  api_key: String,
+    api_key: String,
 }
 
 #[derive(Deserialize)]
 pub(crate) struct TransitionRequest {
-  player: String,
+    player: PlayerName,
 }
 
 #[derive(Deserialize)]
 pub(crate) struct SyncRequest {
-  players: Vec<String>,
+    players: Vec<PlayerName>,
 }
 
 #[debug_handler]
 pub(crate) async fn connect(
-  State(state): State<Arc<AppState>>,
-  Json(payload): Json<ConnRequest>,
+    State(state): State<Arc<AppState>>,
+    Json(payload): Json<ConnRequest>,
 ) -> Result<impl IntoResponse, AppError> {
-  // Validate code format
-  validation::validate_code(&payload.code)?;
+    // Validate code format
+    validation::validate_code(&payload.code)?;
 
-  let pending_link = state.db.consume_pending_link(payload.code, now()).await?;
+    let pending_link = state.db.consume_pending_link(payload.code, now()).await?;
 
-  let api_key = crate::helpers::generate_api_key();
-  let api_key_hash = crate::helpers::hash_api_key(&api_key);
+    let api_key = crate::helpers::generate_api_key();
+    let api_key_hash = crate::helpers::hash_api_key(&api_key);
 
-  state
-    .db
-    .create_server(
-      api_key_hash,
-      pending_link.server_name,
-      pending_link.guild_id,
-    )
-    .await?;
+    state
+        .db
+        .create_server(
+            api_key_hash,
+            pending_link.server_name,
+            pending_link.guild_id,
+        )
+        .await?;
 
-  Ok((StatusCode::CREATED, Json(ConnResponse { api_key })))
+    Ok((StatusCode::CREATED, Json(ConnResponse { api_key })))
 }
 
 #[debug_handler]
 pub(crate) async fn join(
-  State(state): State<Arc<AppState>>,
-  TypedHeader(auth): TypedHeader<Authorization<Bearer>>,
-  Json(payload): Json<TransitionRequest>,
+    State(state): State<Arc<AppState>>,
+    TypedHeader(auth): TypedHeader<Authorization<Bearer>>,
+    Json(payload): Json<TransitionRequest>,
 ) -> Result<impl IntoResponse, AppError> {
-  // Validate player name
-  validation::validate_player_name(&payload.player)?;
+    // Validate player name (already deserialized into PlayerName, just check content)
+    validation::validate_player_name(payload.player.as_str())?;
 
-  let api_key = auth.token().to_string();
-  let api_key_hash = crate::helpers::hash_api_key(&api_key);
+    let api_key = auth.token().to_string();
+    let api_key_hash = crate::helpers::hash_api_key(&api_key);
 
-  // Safe to unwrap: validation ensures name is <= 16 chars
-  let player_name = PlayerName::from(&payload.player).unwrap();
+    state
+        .db
+        .player_join(api_key_hash, payload.player, now())
+        .await?;
 
-  state
-    .db
-    .player_join(api_key_hash, player_name, now())
-    .await?;
-
-  Ok(StatusCode::OK)
+    Ok(StatusCode::OK)
 }
 
 pub(crate) async fn leave(
-  State(state): State<Arc<AppState>>,
-  TypedHeader(auth): TypedHeader<Authorization<Bearer>>,
-  Json(payload): Json<TransitionRequest>,
+    State(state): State<Arc<AppState>>,
+    TypedHeader(auth): TypedHeader<Authorization<Bearer>>,
+    Json(payload): Json<TransitionRequest>,
 ) -> Result<impl IntoResponse, AppError> {
-  // Validate player name
-  validation::validate_player_name(&payload.player)?;
+    // Validate player name (already deserialized into PlayerName, just check content)
+    validation::validate_player_name(payload.player.as_str())?;
 
-  let api_key = auth.token().to_string();
-  let api_key_hash = crate::helpers::hash_api_key(&api_key);
+    let api_key = auth.token().to_string();
+    let api_key_hash = crate::helpers::hash_api_key(&api_key);
 
-  // Safe to unwrap: validation ensures name is <= 16 chars
-  let player_name = PlayerName::from(&payload.player).unwrap();
+    state.db.player_leave(api_key_hash, payload.player).await?;
 
-  state.db.player_leave(api_key_hash, player_name).await?;
-
-  Ok(StatusCode::OK)
+    Ok(StatusCode::OK)
 }
 
 pub(crate) async fn sync(
-  State(state): State<Arc<AppState>>,
-  TypedHeader(auth): TypedHeader<Authorization<Bearer>>,
-  Json(payload): Json<SyncRequest>,
+    State(state): State<Arc<AppState>>,
+    TypedHeader(auth): TypedHeader<Authorization<Bearer>>,
+    Json(payload): Json<SyncRequest>,
 ) -> Result<impl IntoResponse, AppError> {
-  // Validate player list (size and individual names)
-  validation::validate_player_list(&payload.players)?;
+    // Validate player list (already deserialized into Vec<PlayerName>, check size and content)
+    validation::validate_player_list(&payload.players)?;
 
-  let api_key = auth.token().to_string();
-  let api_key_hash = crate::helpers::hash_api_key(&api_key);
+    let api_key = auth.token().to_string();
+    let api_key_hash = crate::helpers::hash_api_key(&api_key);
 
-  // Safe to unwrap: validation ensures all names are <= 16 chars
-  let players: Vec<PlayerName> = payload
-    .players
-    .iter()
-    .map(|p| PlayerName::from(p.as_str()).unwrap())
-    .collect();
+    state
+        .db
+        .sync_players(api_key_hash, payload.players, now())
+        .await?;
 
-  state
-    .db
-    .sync_players(api_key_hash, players, now())
-    .await?;
-
-  Ok(StatusCode::OK)
+    Ok(StatusCode::OK)
 }
 
 #[debug_handler]
 pub(crate) async fn disconnect(
-  State(state): State<Arc<AppState>>,
-  TypedHeader(auth): TypedHeader<Authorization<Bearer>>,
+    State(state): State<Arc<AppState>>,
+    TypedHeader(auth): TypedHeader<Authorization<Bearer>>,
 ) -> Result<impl IntoResponse, AppError> {
-  let api_key = auth.token().to_string();
-  let api_key_hash = crate::helpers::hash_api_key(&api_key);
+    let api_key = auth.token().to_string();
+    let api_key_hash = crate::helpers::hash_api_key(&api_key);
 
-  state.db.delete_server_by_api_key(api_key_hash).await?;
+    state.db.delete_server_by_api_key(api_key_hash).await?;
 
-  Ok(StatusCode::OK)
+    Ok(StatusCode::OK)
 }
 
 #[debug_handler]
 pub(crate) async fn status(
-  State(state): State<Arc<AppState>>,
-  TypedHeader(auth): TypedHeader<Authorization<Bearer>>,
+    State(state): State<Arc<AppState>>,
+    TypedHeader(auth): TypedHeader<Authorization<Bearer>>,
 ) -> Result<impl IntoResponse, AppError> {
-  let api_key = auth.token().to_string();
-  let api_key_hash = crate::helpers::hash_api_key(&api_key);
+    let api_key = auth.token().to_string();
+    let api_key_hash = crate::helpers::hash_api_key(&api_key);
 
-  // Check if server exists with this API key
-  let server = state.db.get_server_by_api_key(api_key_hash).await?;
+    // Check if server exists with this API key
+    let server = state.db.get_server_by_api_key(api_key_hash).await?;
 
-  match server {
-    Some(_) => Ok(StatusCode::OK),
-    None => Err(AppError::DatabaseError(oxeye_db::DbError::InvalidApiKey)),
-  }
+    match server {
+        Some(_) => Ok(StatusCode::OK),
+        None => Err(AppError::DatabaseError(oxeye_db::DbError::InvalidApiKey)),
+    }
 }

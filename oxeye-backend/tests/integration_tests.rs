@@ -517,8 +517,8 @@ async fn test_join_with_too_long_player_name() {
     )
         .await;
 
-    // THEN: Should return 400 Bad Request
-    assert_eq!(status, StatusCode::BAD_REQUEST);
+    // THEN: Should return 422 Unprocessable Entity (ArrayString<16> can't deserialize > 16 chars)
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
 }
 
 // =============================================================================
