@@ -1,3 +1,8 @@
+use arrayvec::ArrayString;
+
+/// Minecraft player name - max 16 characters, stored inline (no heap allocation).
+pub type PlayerName = ArrayString<16>;
+
 /// A pending connection code waiting for a Minecraft server to claim it.
 #[derive(Debug, Clone)]
 pub struct PendingLink {
@@ -42,7 +47,7 @@ pub struct OnlinePlayer {
   /// SHA-256 hash of the server's API key
   pub api_key_hash: String,
   /// Player's Minecraft username
-  pub player_name: String,
+  pub player_name: PlayerName,
   /// Unix timestamp when they joined
   pub joined_at: i64,
 }
@@ -58,7 +63,7 @@ pub struct ServerSummary {
 #[derive(Debug, Clone)]
 pub struct PlayerInfo {
   /// Player's Minecraft username
-  pub player_name: String,
+  pub player_name: PlayerName,
   /// Unix timestamp when they joined
   pub joined_at: i64,
 }

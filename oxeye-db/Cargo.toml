@@ -4,6 +4,8 @@ version = "1.0.0"
 edition = "2024"
 
 [dependencies]
+arrayvec = { workspace = true }
+scc = { workspace = true }
 tokio-rusqlite = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }

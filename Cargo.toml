@@ -37,3 +37,8 @@ tracing-subscriber = { version = "0.3.22", features = ["env-filter"] }
 
 # Discord
 poise = "0.6.1"
+
+
+# special data structures
+scc = "3.4.8"
+arrayvec = "0.7.6"

@@ -8,6 +8,7 @@ use axum_extra::TypedHeader;
 use axum_macros::debug_handler;
 use headers::Authorization;
 use headers::authorization::Bearer;
+use oxeye_db::PlayerName;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 
@@ -68,9 +69,12 @@ pub(crate) async fn join(
   let api_key = auth.token().to_string();
   let api_key_hash = crate::helpers::hash_api_key(&api_key);
 
+  // Safe to unwrap: validation ensures name is <= 16 chars
+  let player_name = PlayerName::from(&payload.player).unwrap();
+
   state
     .db
-    .player_join(api_key_hash, payload.player, now())
+    .player_join(api_key_hash, player_name, now())
     .await?;
 
   Ok(StatusCode::OK)
@@ -87,7 +91,10 @@ pub(crate) async fn leave(
   let api_key = auth.token().to_string();
   let api_key_hash = crate::helpers::hash_api_key(&api_key);
 
-  state.db.player_leave(api_key_hash, payload.player).await?;
+  // Safe to unwrap: validation ensures name is <= 16 chars
+  let player_name = PlayerName::from(&payload.player).unwrap();
+
+  state.db.player_leave(api_key_hash, player_name).await?;
 
   Ok(StatusCode::OK)
 }
@@ -103,9 +110,16 @@ pub(crate) async fn sync(
   let api_key = auth.token().to_string();
   let api_key_hash = crate::helpers::hash_api_key(&api_key);
 
+  // Safe to unwrap: validation ensures all names are <= 16 chars
+  let players: Vec<PlayerName> = payload
+    .players
+    .iter()
+    .map(|p| PlayerName::from(p.as_str()).unwrap())
+    .collect();
+
   state
     .db
-    .sync_players(api_key_hash, payload.players, now())
+    .sync_players(api_key_hash, players, now())
     .await?;
 
   Ok(StatusCode::OK)

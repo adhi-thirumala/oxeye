@@ -4,9 +4,15 @@ use axum::{
 };
 use http_body_util::BodyExt;
 use oxeye_backend::{create_app, helpers, RateLimitConfig};
+use oxeye_db::PlayerName;
 use serde_json::{json, Value};
 use tower::ServiceExt;
 // for `oneshot` method
+
+/// Helper to create PlayerName from a string literal.
+fn pn(s: &str) -> PlayerName {
+    PlayerName::from(s).unwrap()
+}
 
 /// Helper to create test database with in-memory SQLite
 async fn setup_test_db() -> oxeye_db::Database {
@@ -378,7 +384,7 @@ async fn test_join_same_player_twice() {
         .expect("Failed to create server");
 
     let now = helpers::now();
-    db.player_join(api_key_hash, "Steve".to_string(), now)
+    db.player_join(api_key_hash, pn("Steve"), now)
         .await
         .expect("Failed to add player");
 
@@ -533,7 +539,7 @@ async fn test_leave_success() {
         .expect("Failed to create server");
 
     let now = helpers::now();
-    db.player_join(api_key_hash, "Steve".to_string(), now)
+    db.player_join(api_key_hash, pn("Steve"), now)
         .await
         .expect("Failed to add player");
 
@@ -649,10 +655,10 @@ async fn test_sync_success() {
 
     // Add some initial players
     let now = helpers::now();
-    db.player_join(api_key_hash.clone(), "Steve".to_string(), now)
+    db.player_join(api_key_hash.clone(), pn("Steve"), now)
         .await
         .expect("Failed to add player");
-    db.player_join(api_key_hash, "Alex".to_string(), now)
+    db.player_join(api_key_hash, pn("Alex"), now)
         .await
         .expect("Failed to add player");
 
@@ -686,7 +692,7 @@ async fn test_sync_empty_list() {
         .expect("Failed to create server");
 
     let now = helpers::now();
-    db.player_join(api_key_hash, "Steve".to_string(), now)
+    db.player_join(api_key_hash, pn("Steve"), now)
         .await
         .expect("Failed to add player");
 
@@ -740,10 +746,10 @@ async fn test_sync_replaces_entire_list() {
         .expect("Failed to create server");
 
     let now = helpers::now();
-    db.player_join(api_key_hash.clone(), "Steve".to_string(), now)
+    db.player_join(api_key_hash.clone(), pn("Steve"), now)
         .await
         .expect("Failed to add player");
-    db.player_join(api_key_hash.clone(), "Alex".to_string(), now)
+    db.player_join(api_key_hash.clone(), pn("Alex"), now)
         .await
         .expect("Failed to add player");
 
@@ -767,11 +773,11 @@ async fn test_sync_replaces_entire_list() {
         .await
         .expect("Failed to get players");
     assert_eq!(players.len(), 3);
-    assert!(players.contains(&"Notch".to_string()));
-    assert!(players.contains(&"Jeb".to_string()));
-    assert!(players.contains(&"Dinnerbone".to_string()));
-    assert!(!players.contains(&"Steve".to_string()));
-    assert!(!players.contains(&"Alex".to_string()));
+    assert!(players.contains(&pn("Notch")));
+    assert!(players.contains(&pn("Jeb")));
+    assert!(players.contains(&pn("Dinnerbone")));
+    assert!(!players.contains(&pn("Steve")));
+    assert!(!players.contains(&pn("Alex")));
 }
 
 #[tokio::test]
@@ -958,7 +964,7 @@ async fn test_disconnect_success() {
 
     // Add some players
     let now = helpers::now();
-    db.player_join(api_key_hash.clone(), "Steve".to_string(), now)
+    db.player_join(api_key_hash.clone(), pn("Steve"), now)
         .await
         .expect("Failed to add player");
 
@@ -1212,7 +1218,7 @@ async fn test_multiple_servers_in_same_guild() {
         .await
         .expect("Failed to get players");
     assert_eq!(players1.len(), 1);
-    assert_eq!(players1[0], "Steve");
+    assert_eq!(players1[0], pn("Steve"));
 
     let hash2 = helpers::hash_api_key(&api_key2);
     let players2 = db
@@ -1220,7 +1226,7 @@ async fn test_multiple_servers_in_same_guild() {
         .await
         .expect("Failed to get players");
     assert_eq!(players2.len(), 1);
-    assert_eq!(players2[0], "Alex");
+    assert_eq!(players2[0], pn("Alex"));
 }
 
 #[tokio::test]
