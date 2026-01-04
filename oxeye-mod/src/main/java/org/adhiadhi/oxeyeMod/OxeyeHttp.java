@@ -14,6 +14,7 @@ import java.util.concurrent.CompletableFuture;
 public class OxeyeHttp {
   private static final HttpClient client = HttpClient.newHttpClient();
   private static final Gson GSON = new Gson();
+  private static volatile String lastBootId = null;
 
   public static void sendJoinRequest(String playerName) throws URISyntaxException {
     OxeyeMod.LOGGER.info("Sending join request for player: " + playerName);
@@ -29,9 +30,9 @@ public class OxeyeHttp {
   // Player events (fire-and-forget, uses stored API key)
   // ========================================================================
 
-  public static void sendSyncRequest(List<String> playerNames) throws URISyntaxException {
+  public static CompletableFuture<Void> sendSyncRequest(List<String> playerNames) throws URISyntaxException {
     OxeyeMod.LOGGER.info("Sending sync request for players: " + String.join(", ", playerNames));
-    postAuthenticatedAsync("/sync", GSON.toJson(new Object() {
+    return postAuthenticatedWithFuture("/sync", GSON.toJson(new Object() {
       final List<String> players = playerNames;
     }));
   }
@@ -134,6 +135,32 @@ public class OxeyeHttp {
   // Helper methods
   // ========================================================================
 
+  private static CompletableFuture<Void> postAuthenticatedWithFuture(String endpoint, String jsonBody) throws URISyntaxException {
+    OxeyeConfig config = OxeyeMod.CONFIG;
+    URI uri = getBaseUri().resolve(endpoint);
+
+    HttpRequest req = HttpRequest.newBuilder()
+        .uri(uri)
+        .header("Content-Type", "application/json")
+        .header("Authorization", "Bearer " + config.getApiToken())
+        .POST(HttpRequest.BodyPublishers.ofString(jsonBody))
+        .build();
+
+    return client.sendAsync(req, HttpResponse.BodyHandlers.ofString())
+        .thenAccept(response -> {
+          checkBootIdChange(response);
+          if (response.statusCode() >= 200 && response.statusCode() < 300) {
+            OxeyeMod.LOGGER.info("HTTP request to " + endpoint + " succeeded");
+          } else {
+            OxeyeMod.LOGGER.error("HTTP request to " + endpoint + " failed: " + parseErrorMessage(response));
+          }
+        })
+        .exceptionally(e -> {
+          OxeyeMod.LOGGER.error("HTTP request to " + endpoint + " failed: " + e.getMessage());
+          return null;
+        });
+  }
+
   private static void postAuthenticatedAsync(String endpoint, String jsonBody) throws URISyntaxException {
     OxeyeConfig config = OxeyeMod.CONFIG;
     URI uri = getBaseUri().resolve(endpoint);
@@ -147,6 +174,7 @@ public class OxeyeHttp {
 
     client.sendAsync(req, HttpResponse.BodyHandlers.ofString())
         .thenAccept(response -> {
+          checkBootIdChange(response);
           if (response.statusCode() >= 200 && response.statusCode() < 300) {
             OxeyeMod.LOGGER.info("HTTP request to " + endpoint + " succeeded");
           } else {
@@ -157,6 +185,22 @@ public class OxeyeHttp {
           OxeyeMod.LOGGER.error("HTTP request to " + endpoint + " failed: " + e.getMessage());
           return null;
         });
+  }
+
+  private static void checkBootIdChange(HttpResponse<String> response) {
+    String bootId = response.headers().firstValue("X-Boot-ID").orElse(null);
+    if (bootId != null && !bootId.equals(lastBootId)) {
+      OxeyeMod.LOGGER.warn("Boot ID changed from " + lastBootId + " to " + bootId + ", backend restarted");
+      lastBootId = bootId;
+      // Trigger a sync on next server tick to resync state
+      SyncManager.markOutOfSync();
+    } else if (bootId != null) {
+      lastBootId = bootId;
+    }
+  }
+
+  public static String getLastBootId() {
+    return lastBootId;
   }
 
   // Response types for JSON parsing

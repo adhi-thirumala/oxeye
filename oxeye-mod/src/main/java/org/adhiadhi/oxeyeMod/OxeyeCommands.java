@@ -22,6 +22,9 @@ public class OxeyeCommands {
         .then(Commands.literal("disconnect")
             .requires(source -> source.permissions().hasPermission(Permissions.COMMANDS_OWNER))
             .executes(OxeyeCommands::disconnect))
+        .then(Commands.literal("sync")
+            .requires(source -> source.permissions().hasPermission(Permissions.COMMANDS_OWNER))
+            .executes(OxeyeCommands::sync))
         .then(Commands.literal("status")
             .executes(OxeyeCommands::status)));
   }
@@ -81,6 +84,44 @@ public class OxeyeCommands {
       source.sendFailure(Component.literal(e.getReason()));
       return 1;
     }
+
+    return 0;
+  }
+
+  private static int sync(CommandContext<CommandSourceStack> context) {
+    CommandSourceStack source = context.getSource();
+
+    // Check if connected
+    String existingToken = OxeyeMod.CONFIG.getApiToken();
+    if (existingToken == null || existingToken.isEmpty()) {
+      source.sendFailure(Component.literal("Not connected. Run /oxeye connect first."));
+      return 1;
+    }
+
+    // Check if server is available
+    if (OxeyeEvents.getCurrentServer() == null) {
+      source.sendFailure(Component.literal("Server not started."));
+      return 1;
+    }
+
+    // Check if already syncing
+    if (SyncManager.isSyncing()) {
+      source.sendFailure(Component.literal("Sync already in progress."));
+      return 1;
+    }
+
+    // Get current players and sync
+    var players = OxeyeEvents.getCurrentServer().getPlayerList().getPlayers()
+        .stream().map(p -> p.getName().getString()).toList();
+
+    source.sendSuccess(() -> Component.literal("Syncing " + players.size() + " player(s)..."), false);
+
+    SyncManager.sync(players)
+        .thenRun(() -> source.sendSuccess(() -> Component.literal("Sync complete."), false))
+        .exceptionally(e -> {
+          sendError(source, e);
+          return null;
+        });
 
     return 0;
   }

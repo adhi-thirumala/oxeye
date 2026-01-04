@@ -5,45 +5,45 @@ import net.fabricmc.fabric.api.networking.v1.PacketSender;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.network.ServerGamePacketListenerImpl;
 
-import java.net.URISyntaxException;
 import java.util.List;
 
 public class OxeyeEvents {
+  private static MinecraftServer currentServer;
+
   public static void onPlayerJoin(ServerGamePacketListenerImpl serverGamePacketListener, PacketSender packetSender, MinecraftServer minecraftServer) {
     String name = serverGamePacketListener.player.getName().getString();
     OxeyeMod.LOGGER.info("Player joined: " + name);
-    try {
-      OxeyeHttp.sendJoinRequest(name);
-    } catch (URISyntaxException e) {
-      OxeyeMod.LOGGER.error("Failed to send join request: " + e.getMessage());
+    
+    // If backend restarted (boot ID changed), auto-sync first
+    if (SyncManager.needsSync() && !SyncManager.isSyncing()) {
+      List<String> currentPlayers = minecraftServer.getPlayerList().getPlayers().stream()
+          .map(player -> player.getName().getString()).toList();
+      SyncManager.sync(currentPlayers);
     }
+    
+    SyncManager.onPlayerJoin(name);
   }
 
   public static void onPlayerDisconnect(ServerGamePacketListenerImpl serverGamePacketListener, MinecraftServer minecraftServer) {
     String name = serverGamePacketListener.player.getName().getString();
     OxeyeMod.LOGGER.info("Player disconnected: " + name);
-    try {
-      OxeyeHttp.sendLeaveRequest(name);
-    } catch (URISyntaxException e) {
-      OxeyeMod.LOGGER.error("Failed to send leave request: " + e.getMessage());
-    }
+    SyncManager.onPlayerLeave(name);
   }
 
   public static void onServerStarted(MinecraftServer minecraftServer) {
+    currentServer = minecraftServer;
     OxeyeMod.LOGGER.info("Server started, sending sync request");
-    try {
-      OxeyeHttp.sendSyncRequest(minecraftServer.getPlayerList().getPlayers().stream().map(player -> player.getName().getString()).toList());
-    } catch (URISyntaxException e) {
-      OxeyeMod.LOGGER.error("Failed to send sync request: " + e.getMessage());
-    }
+    SyncManager.sync(minecraftServer.getPlayerList().getPlayers().stream()
+        .map(player -> player.getName().getString()).toList());
   }
 
   public static void onServerStopped(MinecraftServer minecraftServer) {
     OxeyeMod.LOGGER.info("Server stopped");
-    try {
-      OxeyeHttp.sendSyncRequest(List.of());
-    } catch (URISyntaxException e) {
-      OxeyeMod.LOGGER.error("Failed to send sync request: " + e.getMessage());
-    }
+    SyncManager.sync(List.of());
+    currentServer = null;
+  }
+
+  public static MinecraftServer getCurrentServer() {
+    return currentServer;
   }
 }
