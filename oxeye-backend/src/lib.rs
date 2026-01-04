@@ -6,7 +6,7 @@ mod validation;
 
 use axum::{
     Router,
-    http::StatusCode,
+    http::{HeaderName, HeaderValue, StatusCode},
     routing::{get, post},
 };
 use std::sync::Arc;
@@ -15,10 +15,12 @@ use tower_governor::{
     GovernorLayer, governor::GovernorConfigBuilder, key_extractor::SmartIpKeyExtractor,
 };
 use tower_http::limit::RequestBodyLimitLayer;
+use tower_http::set_header::SetResponseHeaderLayer;
 use tower_http::timeout::TimeoutLayer;
 
 pub struct AppState {
     pub db: oxeye_db::Database,
+    pub boot_id: String,
 }
 
 /// Rate limiting configuration
@@ -58,7 +60,18 @@ pub fn create_app(
     request_timeout: Duration,
     rate_limit: RateLimitConfig,
 ) -> Router {
-    let state = Arc::new(AppState { db });
+    let boot_id = helpers::generate_boot_id();
+    tracing::info!(boot_id = %boot_id, "generated boot ID");
+    let state = Arc::new(AppState {
+        db,
+        boot_id: boot_id.clone(),
+    });
+
+    // Create X-Boot-ID header layer
+    let boot_id_header = SetResponseHeaderLayer::overriding(
+        HeaderName::from_static("x-boot-id"),
+        HeaderValue::from_str(&boot_id).unwrap(),
+    );
 
     // Strict rate limit for /connect - only needed once per server setup
     let connect_governor = GovernorConfigBuilder::default()
@@ -107,6 +120,7 @@ pub fn create_app(
         .merge(connect_routes)
         .merge(player_routes)
         .merge(general_routes)
+        .layer(boot_id_header)
         .layer(TimeoutLayer::with_status_code(
             StatusCode::REQUEST_TIMEOUT,
             request_timeout,

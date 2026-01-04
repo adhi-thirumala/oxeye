@@ -45,3 +45,10 @@ pub fn format_time_online(duration_secs: i64) -> String {
         format!("{} days", days)
     }
 }
+
+/// Generate a unique boot ID for this backend instance.
+/// Used by Minecraft mods to detect backend restarts and trigger resyncs.
+pub fn generate_boot_id() -> String {
+    // Generate a 12-character alphanumeric ID (similar to short UUID)
+    Alphanumeric.sample_string(&mut rng(), 12)
+}

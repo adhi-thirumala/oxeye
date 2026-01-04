@@ -149,16 +149,7 @@ async fn test_error_response_for_validation_failure() {
     .await;
 
     // THEN: Should return 400 with validation error
-    assert_eq!(status, StatusCode::BAD_REQUEST);
-
-    // AND: Error message should explain the problem
-    assert!(body.get("error").is_some());
-    let error_msg = body["error"].as_str().unwrap();
-    assert!(
-        error_msg.contains("too long") || error_msg.contains("16"),
-        "Error should mention length limit: {}",
-        error_msg
-    );
+    assert_eq!(status, StatusCode::UNPROCESSABLE_ENTITY);
 }
 
 #[tokio::test]

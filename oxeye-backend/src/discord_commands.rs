@@ -76,11 +76,34 @@ pub async fn status(
         .guild_id()
         .ok_or("This command can only be used in a server")?
         .get();
-    let server = data.db.get_server_with_players(guild_id, name).await?;
+    let server = data
+        .db
+        .get_server_with_players(guild_id, name.clone())
+        .await?;
+    let is_synced = data
+        .db
+        .is_server_synced_by_name(guild_id, &name)
+        .await
+        .unwrap_or(false);
+
+    // Show sync status indicator
+    let (status_icon, status_text) = if is_synced {
+        ("🟢", format!("{} players online", server.players.len()))
+    } else {
+        ("⏳", "awaiting sync".to_string())
+    };
+
     let embed = CreateEmbed::default()
-        .title(format!("Status: {}", server.name))
+        .title(format!("{} {}", status_icon, server.name))
         .color(0x5865F2);
-    let embed = if server.players.is_empty() {
+
+    let embed = if !is_synced {
+        embed.description(format!(
+            "**Status:** {}\n\nThis server hasn't synced since the backend restarted. \
+            Player data will update when someone joins/leaves or an admin runs `/oxeye sync` in-game.",
+            status_text
+        ))
+    } else if server.players.is_empty() {
         embed
             .description("No players online")
             .field("Players", "0", true)

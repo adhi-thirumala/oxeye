@@ -31,6 +31,7 @@ impl Database {
         let cache = Arc::new(new_cache());
         let db = Self { conn, cache };
         db.initialize().await?;
+        db.populate_cache().await?;
         Ok(db)
     }
 
@@ -42,6 +43,7 @@ impl Database {
         let cache = Arc::new(new_cache());
         let db = Self { conn, cache };
         db.initialize().await?;
+        db.populate_cache().await?;
         Ok(db)
     }
 
@@ -83,6 +85,57 @@ impl Database {
 
         info!("database initialized");
         Ok(())
+    }
+
+    /// Pre-populate the cache with all existing servers.
+    /// All servers start with synced_since_boot = false.
+    async fn populate_cache(&self) -> Result<()> {
+        let api_key_hashes: Vec<String> = self
+            .conn
+            .call(|conn| {
+                let mut stmt = conn.prepare_cached("SELECT api_key_hash FROM servers")?;
+                let hashes = stmt
+                    .query_map([], |row| row.get(0))?
+                    .collect::<std::result::Result<Vec<_>, _>>()?;
+                Ok(hashes)
+            })
+            .await?;
+
+        let count = api_key_hashes.len();
+        for hash in api_key_hashes {
+            let _ = self.cache.insert_async(hash, ServerState::new()).await;
+        }
+
+        info!(count, "pre-populated cache with servers (awaiting sync)");
+        Ok(())
+    }
+
+    /// Check if a server has synced since backend restart.
+    pub async fn is_server_synced(&self, api_key_hash: &str) -> bool {
+        match self.cache.get_async(api_key_hash).await {
+            Some(entry) => entry.get().synced_since_boot,
+            None => false,
+        }
+    }
+
+    /// Check if a server has synced since backend restart (by guild and name).
+    pub async fn is_server_synced_by_name(&self, guild_id: u64, server_name: &str) -> Result<bool> {
+        let name = server_name.to_string();
+        let api_key_hash: Option<String> = self
+            .conn
+            .call(move |conn| {
+                conn.prepare_cached(
+                    "SELECT api_key_hash FROM servers WHERE guild_id = ?1 AND name = ?2",
+                )?
+                .query_row(params![guild_id, &name], |row| row.get(0))
+                .optional()
+            })
+            .await?;
+
+        match api_key_hash {
+            Some(hash) => Ok(self.is_server_synced(&hash).await),
+            None => Err(DbError::ServerNotFound),
+        }
     }
 
     // ========================================================================
