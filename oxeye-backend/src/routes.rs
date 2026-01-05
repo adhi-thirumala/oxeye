@@ -37,6 +37,9 @@ pub(crate) async fn connect(
     State(state): State<Arc<AppState>>,
     Json(payload): Json<ConnRequest>,
 ) -> Result<impl IntoResponse, AppError> {
+    #[cfg(debug_assertions)]
+    tracing::debug!(?payload.code, "connect request");
+
     // Validate code format
     validation::validate_code(&payload.code)?;
 
@@ -63,6 +66,9 @@ pub(crate) async fn join(
     TypedHeader(auth): TypedHeader<Authorization<Bearer>>,
     Json(payload): Json<TransitionRequest>,
 ) -> Result<impl IntoResponse, AppError> {
+    #[cfg(debug_assertions)]
+    tracing::debug!(player = %payload.player, "join request");
+
     // Validate player name (already deserialized into PlayerName, just check content)
     validation::validate_player_name(payload.player.as_str())?;
 
@@ -82,6 +88,9 @@ pub(crate) async fn leave(
     TypedHeader(auth): TypedHeader<Authorization<Bearer>>,
     Json(payload): Json<TransitionRequest>,
 ) -> Result<impl IntoResponse, AppError> {
+    #[cfg(debug_assertions)]
+    tracing::debug!(player = %payload.player, "leave request");
+
     // Validate player name (already deserialized into PlayerName, just check content)
     validation::validate_player_name(payload.player.as_str())?;
 
@@ -98,6 +107,9 @@ pub(crate) async fn sync(
     TypedHeader(auth): TypedHeader<Authorization<Bearer>>,
     Json(payload): Json<SyncRequest>,
 ) -> Result<impl IntoResponse, AppError> {
+    #[cfg(debug_assertions)]
+    tracing::debug!(players = ?payload.players, count = payload.players.len(), "sync request");
+
     // Validate player list (already deserialized into Vec<PlayerName>, check size and content)
     validation::validate_player_list(&payload.players)?;
 
@@ -117,6 +129,9 @@ pub(crate) async fn disconnect(
     State(state): State<Arc<AppState>>,
     TypedHeader(auth): TypedHeader<Authorization<Bearer>>,
 ) -> Result<impl IntoResponse, AppError> {
+    #[cfg(debug_assertions)]
+    tracing::debug!("disconnect request");
+
     let api_key = auth.token().to_string();
     let api_key_hash = crate::helpers::hash_api_key(&api_key);
 
@@ -130,6 +145,9 @@ pub(crate) async fn status(
     State(state): State<Arc<AppState>>,
     TypedHeader(auth): TypedHeader<Authorization<Bearer>>,
 ) -> Result<impl IntoResponse, AppError> {
+    #[cfg(debug_assertions)]
+    tracing::debug!("status request");
+
     let api_key = auth.token().to_string();
     let api_key_hash = crate::helpers::hash_api_key(&api_key);
 

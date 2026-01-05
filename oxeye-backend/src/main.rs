@@ -14,7 +14,13 @@ pub(crate) struct Data {
 #[tokio::main]
 async fn main() {
     // Initialize tracing for structured logging
+    #[cfg(debug_assertions)]
+    let log_level = tracing::Level::DEBUG;
+    #[cfg(not(debug_assertions))]
+    let log_level = tracing::Level::INFO;
+
     tracing_subscriber::fmt()
+        .with_max_level(log_level)
         .with_target(false)
         .compact()
         .init();

@@ -7,8 +7,8 @@ import java.net.URISyntaxException;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
-import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 
 public class OxeyeHttp {
@@ -32,9 +32,7 @@ public class OxeyeHttp {
 
   public static CompletableFuture<Void> sendSyncRequest(List<String> playerNames) throws URISyntaxException {
     OxeyeMod.LOGGER.info("Sending sync request for players: " + String.join(", ", playerNames));
-    return postAuthenticatedWithFuture("/sync", GSON.toJson(new Object() {
-      final List<String> players = playerNames;
-    }));
+    return postAuthenticatedWithFuture("/sync", GSON.toJson(Map.of("players", playerNames)));
   }
 
   public static CompletableFuture<String> sendConnectRequest(String code) throws URISyntaxException {

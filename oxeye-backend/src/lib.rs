@@ -9,6 +9,10 @@ use axum::{
     http::{HeaderName, HeaderValue, StatusCode},
     routing::{get, post},
 };
+#[cfg(debug_assertions)]
+use axum::{body::Body, extract::Request, middleware::{self, Next}, response::Response};
+#[cfg(debug_assertions)]
+use http_body_util::BodyExt;
 use std::sync::Arc;
 use std::time::Duration;
 use tower_governor::{
@@ -17,6 +21,8 @@ use tower_governor::{
 use tower_http::limit::RequestBodyLimitLayer;
 use tower_http::set_header::SetResponseHeaderLayer;
 use tower_http::timeout::TimeoutLayer;
+use tower_http::trace::{DefaultMakeSpan, DefaultOnResponse, TraceLayer};
+use tracing::Level;
 
 pub struct AppState {
     pub db: oxeye_db::Database,
@@ -51,6 +57,31 @@ impl Default for RateLimitConfig {
             general_burst: 20,
         }
     }
+}
+
+#[cfg(debug_assertions)]
+async fn log_request_body(request: Request, next: Next) -> Response {
+    let (parts, body) = request.into_parts();
+    let bytes = body.collect().await.map(|b| b.to_bytes()).unwrap_or_default();
+
+    if let Ok(body_str) = std::str::from_utf8(&bytes) {
+        tracing::debug!(
+            method = %parts.method,
+            uri = %parts.uri,
+            body = %body_str,
+            "incoming request"
+        );
+    } else {
+        tracing::debug!(
+            method = %parts.method,
+            uri = %parts.uri,
+            body_len = bytes.len(),
+            "incoming request (binary body)"
+        );
+    }
+
+    let request = Request::from_parts(parts, Body::from(bytes));
+    next.run(request).await
 }
 
 /// Create the application router with the given database and configuration
@@ -115,7 +146,7 @@ pub fn create_app(
         .route("/disconnect", post(routes::disconnect))
         .layer(GovernorLayer::new(general_governor));
 
-    Router::new()
+    let router = Router::new()
         .route("/health", get(|| async { StatusCode::OK }))
         .merge(connect_routes)
         .merge(player_routes)
@@ -126,5 +157,14 @@ pub fn create_app(
             request_timeout,
         ))
         .layer(RequestBodyLimitLayer::new(request_body_limit))
-        .with_state(state)
+        .layer(
+            TraceLayer::new_for_http()
+                .make_span_with(DefaultMakeSpan::new().level(Level::INFO))
+                .on_response(DefaultOnResponse::new().level(Level::INFO)),
+        );
+
+    #[cfg(debug_assertions)]
+    let router = router.layer(middleware::from_fn(log_request_body));
+
+    router.with_state(state)
 }
