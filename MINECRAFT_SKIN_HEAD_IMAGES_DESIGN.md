@@ -425,6 +425,23 @@ No additional indexes needed.
 **Why no `first_seen` timestamp?**
 Not needed for core functionality. YAGNI (You Ain't Gonna Need It). Can add later if debugging requires it.
 
+#### Integration with In-Memory Architecture
+
+**Note:** Per the architectural redesign (see `docs/architecture-decisions.md`), **active/online players are stored in-memory** using `scc::HashMap`, not in SQLite. This design only concerns persistent skin data.
+
+**Where data lives:**
+- **In-Memory** (`scc::HashMap`): Which players are currently online (ephemeral, resyncs on reconnect)
+- **SQLite** (`player_skins`): Which skin each player last had (persistent)
+- **SQLite** (`skins`, `rendered_heads`): Skin textures and rendered heads (persistent)
+
+**Discord bot flow:**
+1. Query in-memory cache → get list of online player names
+2. For each player, query `player_skins` table → get their `texture_hash`
+3. Build embed with image URL: `https://backend/heads/{texture_hash}.png`
+
+**Concurrency guarantee:**
+SQLite in WAL mode supports concurrent reads during writes. Skin data reads (serving Discord embeds) won't be blocked by skin data writes (player joins with new skins).
+
 ---
 
 ## Final Architecture
@@ -440,28 +457,37 @@ Not needed for core functionality. YAGNI (You Ain't Gonna Need It). Can add late
          │
          │ POST /join (hash only)
          │ POST /skin (if 202)
+         │ POST /leave
+         │ POST /sync
          │
          ▼
-┌─────────────────────────────────────┐
-│  Rust Backend (Axum)                │
-│  ┌──────────────────────────────┐   │
-│  │ SQLite Database              │   │
-│  │ - skins (10KB each)          │   │
-│  │ - player_skins (mapping)     │   │
-│  │ - rendered_heads (2KB each)  │   │
-│  └──────────────────────────────┘   │
-│                                      │
-│  GET /heads/{hash}.png               │
-└─────────┬────────────────────────────┘
+┌──────────────────────────────────────────────────────────┐
+│  Rust Backend (Axum)                                     │
+│  ┌────────────────────────────────────────────────────┐  │
+│  │ In-Memory Cache (scc::HashMap)                     │  │
+│  │ - Online players (ephemeral, resyncs on reconnect)│  │
+│  └────────────────────────────────────────────────────┘  │
+│  ┌────────────────────────────────────────────────────┐  │
+│  │ SQLite Database (persistent)                       │  │
+│  │ - skins (10KB each)                                │  │
+│  │ - player_skins (player → texture_hash mapping)     │  │
+│  │ - rendered_heads (2KB each)                        │  │
+│  └────────────────────────────────────────────────────┘  │
+│                                                           │
+│  GET /heads/{hash}.png                                    │
+└─────────┬─────────────────────────────────────────────────┘
           │
-          │ Image data
+          │ Image data (from SQLite)
           │
           ▼
 ┌─────────────────┐
 │  Discord Bot    │
 │  (Poise)        │
 │                 │
-│  /status cmd    │
+│  /online cmd    │
+│  (queries both  │
+│   in-memory +   │
+│   SQLite)       │
 └─────────────────┘
           │
           │ Embed with image URL
@@ -492,6 +518,12 @@ Response (need skin):
 202 Accepted
 ```
 
+**Backend Implementation:**
+- Check if skin exists in `skins` table (SQLite)
+- Update `player_skins` table (SQLite) with texture_hash
+- Add player to in-memory cache for this server
+- Return 200 if skin exists, 202 if need skin data
+
 **POST /skin**
 ```json
 Request:
@@ -504,19 +536,27 @@ Response:
 200 OK
 ```
 
-**POST /leave** (unchanged)
+**POST /leave**
 ```json
 {
   "player": "Steve"
 }
 ```
 
-**POST /sync** (unchanged)
+**Backend Implementation:**
+- Remove player from in-memory cache for this server
+- Note: `player_skins` table persists (we remember their last skin for next join)
+
+**POST /sync**
 ```json
 {
   "players": ["Steve", "Alex", "Notch"]
 }
 ```
+
+**Backend Implementation:**
+- Replace entire player list in in-memory cache for this server
+- Note: `player_skins` table is not affected (persists historical skin data)
 
 #### Image Serving (Discord Bot → Backend)
 
@@ -560,8 +600,9 @@ Fallback if head not found: Returns default Steve head
 5. Backend:
    - Receives skin
    - Verifies hash matches
-   - Inserts into skins table
-   - Inserts/updates player_skins table
+   - Inserts into skins table (SQLite)
+   - Inserts/updates player_skins table (SQLite)
+   - Player "Steve" already in in-memory cache from step 3
    - Spawns async task: render_head("abc123")
    - Responds: 200 OK
 
@@ -572,11 +613,11 @@ Fallback if head not found: Returns default Steve head
 
 Later:
 
-7. Discord user runs: /status MyServer
+7. Discord user runs: /online MyServer
 
 8. Discord Bot:
-   - Queries online players
-   - For each player, gets texture_hash
+   - Queries in-memory cache → gets list of online player names (including "Steve")
+   - For each player, queries player_skins table → gets texture_hash
    - Builds embed with: thumbnail("https://backend/heads/abc123.png")
 
 9. Discord fetches: GET /heads/abc123.png
@@ -599,7 +640,8 @@ Later:
 
 3. Backend:
    - Checks: SELECT * FROM skins WHERE texture_hash = 'abc123'
-   - Found! → Updates player_skins.last_updated
+   - Found! → Updates player_skins.last_updated (SQLite)
+   - Adds "Steve" to in-memory cache
    - Responds: 200 OK
 
 4. Done! No network transfer of skin, no rendering.
@@ -626,7 +668,8 @@ Later:
 5-6. Same as Scenario 1 (fetch skin, render head)
 
 7. Backend:
-   - Updates player_skins table: Steve now points to xyz789
+   - Updates player_skins table: Steve now points to xyz789 (SQLite)
+   - "Steve" already in in-memory cache from step 4
    - Old skin (abc123) remains in database (might be used by other players)
    - Old head (abc123) remains cached
 ```
@@ -785,11 +828,31 @@ Later:
 
 ### Discord Bot Changes Required
 
-1. Modify `/status` command to query texture hashes:
+1. Modify `/online` command to query both in-memory cache and SQLite:
    ```rust
+   // Step 1: Get online players from in-memory cache
+   let online_players: Vec<PlayerName> = state.online_cache
+       .get_players(api_key_hash)
+       .await?;
+
+   // Step 2: For each player, get their texture hash from SQLite
    for player in online_players {
-       let hash = db.get_player_texture_hash(&player.name).await?;
-       embed = embed.thumbnail(format!("{}/heads/{}.png", base_url, hash));
+       match db.get_player_texture_hash(&player).await? {
+           Some(hash) => {
+               embed = embed.thumbnail(format!("{}/heads/{}.png", base_url, hash));
+           }
+           None => {
+               // Player hasn't sent skin data yet, use Steve fallback
+               embed = embed.thumbnail(format!("{}/heads/steve.png", base_url));
+           }
+       }
+   }
+   ```
+
+2. Add database method for getting texture hash:
+   ```rust
+   impl Database {
+       async fn get_player_texture_hash(&self, player_name: &str) -> Result<Option<String>>;
    }
    ```
 
