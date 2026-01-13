@@ -26,8 +26,8 @@ async fn autocomplete_server_name(
         .into_iter()
         .map(|s| s.name)
         .filter(|name| name.to_lowercase().contains(&partial.to_lowercase()))
-        .collect::<Vec<_>>()
         .take(25)
+        .collect::<Vec<_>>()
 }
 
 /// Generate a one-time code to link a Minecraft server to this Discord server
