@@ -7,11 +7,35 @@ use poise::serenity_prelude::{CreateEmbed, CreateEmbedFooter};
 
 pub(crate) type Error = Box<dyn std::error::Error + Send + Sync>;
 
+/// Autocomplete function for server names - suggests servers from current guild
+async fn autocomplete_server_name(
+    ctx: Context<'_>,
+    partial: &str,
+) -> Vec<String> {
+    // Get guild_id from context
+    let guild_id = match ctx.guild_id() {
+        Some(id) => id.get(),
+        None => return Vec::new(),
+    };
+
+    // Fetch servers for this guild
+    let servers = ctx.data().db.get_servers_by_guild(guild_id).await.unwrap_or_default();
+
+    // Filter server names by partial input (case-insensitive)
+    servers
+        .into_iter()
+        .map(|s| s.name)
+        .filter(|name| name.to_lowercase().contains(&partial.to_lowercase()))
+        .collect()
+}
+
 /// Generate a one-time code to link a Minecraft server to this Discord server
 #[command(slash_command, prefix_command, required_permissions = "ADMINISTRATOR")]
 pub async fn connect(
     ctx: Context<'_>,
-    #[description = "Minecraft Server Name"] name: String,
+    #[description = "Minecraft Server Name"]
+    #[autocomplete = "autocomplete_server_name"]
+    name: String,
 ) -> Result<(), Error> {
     let data = ctx.data();
     let guild_id = ctx
@@ -69,7 +93,9 @@ pub async fn list(ctx: Context<'_>) -> Result<(), Error> {
 #[command(slash_command, prefix_command)]
 pub async fn status(
     ctx: Context<'_>,
-    #[description = "Minecraft Server Name"] name: String,
+    #[description = "Minecraft Server Name"]
+    #[autocomplete = "autocomplete_server_name"]
+    name: String,
 ) -> Result<(), Error> {
     let data = ctx.data();
     let guild_id = ctx
