@@ -79,13 +79,13 @@ pub struct CompositeConfig {
 impl Default for CompositeConfig {
     fn default() -> Self {
         Self {
-            head_size: 64,
-            h_spacing: 16,
-            v_spacing: 8,
-            text_height: 24,
+            head_size: 128,
+            h_spacing: 32,
+            v_spacing: 16,
+            text_height: 48,
             max_per_row: 5,
-            font_size: 16.0,
-            min_font_size: 10.0,
+            font_size: 32.0,
+            min_font_size: 20.0,
         }
     }
 }

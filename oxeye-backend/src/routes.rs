@@ -53,6 +53,8 @@ pub(crate) struct SyncRequest {
 /// Skin upload request - sent when backend returns 202 from /join.
 #[derive(Deserialize)]
 pub(crate) struct SkinRequest {
+    /// Player name who owns this skin
+    player: PlayerName,
     /// SHA256 hash of the GameProfile texture value
     texture_hash: String,
     /// Base64-encoded PNG skin data
@@ -119,14 +121,19 @@ pub(crate) async fn join(
 
     // Check if we need the skin data
     let need_skin = if let Some(ref texture_hash) = payload.texture_hash {
-        // Update player's skin mapping
-        state
-            .db
-            .update_player_skin(payload.player.as_str(), texture_hash, now())
-            .await?;
-
         // Check if we already have this skin
-        !state.db.skin_exists(texture_hash).await?
+        let exists = state.db.skin_exists(texture_hash).await?;
+
+        if exists {
+            // Only update player's skin mapping if the skin already exists in the database
+            // (FK constraint: player_skins.texture_hash references skins.texture_hash)
+            state
+                .db
+                .update_player_skin(payload.player.as_str(), texture_hash, now())
+                .await?;
+        }
+
+        !exists
     } else {
         false
     };
@@ -285,6 +292,13 @@ pub(crate) async fn upload_skin(
         )
         .await?;
 
+    // Now that the skin exists, update the player's skin mapping
+    // (This was deferred from /join because the FK constraint requires the skin to exist first)
+    state
+        .db
+        .update_player_skin(payload.player.as_str(), &payload.texture_hash, now())
+        .await?;
+
     // Spawn async task to render head
     let db = state.db.clone();
     let texture_hash = payload.texture_hash.clone();
@@ -354,13 +368,24 @@ pub(crate) async fn get_status_image(
 ) -> Response {
     // Strip .png extension if present
     let api_key_hash = hash_with_ext.strip_suffix(".png").unwrap_or(&hash_with_ext);
+    tracing::info!(api_key_hash, "status image requested");
 
     // Try to get cached status image
     let image_data = match state.db.get_status_image(api_key_hash).await {
-        Ok(Some(data)) => data,
+        Ok(Some(data)) => {
+            tracing::info!(
+                api_key_hash,
+                bytes = data.len(),
+                "returning cached status image"
+            );
+            data
+        }
         Ok(None) => {
             // Not cached yet, generate on-demand
-            tracing::debug!(api_key_hash, "status image not cached, generating");
+            tracing::info!(
+                api_key_hash,
+                "status image not cached, generating on-demand"
+            );
             match generate_status_composite(&state.db, api_key_hash).await {
                 Ok(data) => data,
                 Err(e) => {
@@ -398,13 +423,27 @@ async fn generate_status_composite(
 ) -> Result<Vec<u8>, Box<dyn std::error::Error + Send + Sync>> {
     // Get players with their texture hashes
     let players = db.get_players_with_heads(api_key_hash).await?;
+    tracing::info!(
+        api_key_hash,
+        player_count = players.len(),
+        players = ?players.iter().map(|(name, hash)| (name.as_str(), hash.as_ref().map(|h| &h[..8]))).collect::<Vec<_>>(),
+        "generating status composite"
+    );
 
     // Build player entries with head data
     let mut entries = Vec::with_capacity(players.len());
     for (player_name, texture_hash) in players {
         let head_data = if let Some(ref hash) = texture_hash {
-            db.get_rendered_head(hash).await.ok().flatten()
+            let data = db.get_rendered_head(hash).await.ok().flatten();
+            tracing::debug!(
+                player = %player_name,
+                texture_hash = &hash[..8],
+                has_head = data.is_some(),
+                "fetched head data"
+            );
+            data
         } else {
+            tracing::debug!(player = %player_name, "no texture hash, using fallback");
             None
         };
 
@@ -416,7 +455,9 @@ async fn generate_status_composite(
 
     // Render composite
     let config = CompositeConfig::default();
+    tracing::info!(entry_count = entries.len(), "rendering composite image");
     let image_data = render::render_composite(&entries, &config)?;
+    tracing::info!(bytes = image_data.len(), "composite image rendered");
 
     Ok(image_data)
 }
@@ -426,11 +467,12 @@ async fn regenerate_status_composite(
     db: &oxeye_db::Database,
     api_key_hash: &str,
 ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+    tracing::info!(api_key_hash, "regenerating status composite");
     let image_data = generate_status_composite(db, api_key_hash).await?;
 
     db.store_status_image(api_key_hash.to_string(), image_data, now())
         .await?;
 
-    tracing::debug!(api_key_hash, "regenerated status composite");
+    tracing::info!(api_key_hash, "status composite cached");
     Ok(())
 }

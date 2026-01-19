@@ -28,6 +28,7 @@ impl ServerState {
     /// Add a player to the server.
     /// If player already exists, updates their join time.
     pub fn add_player(&mut self, name: PlayerName, joined_at: i64) {
+        self.synced_since_boot = true;
         // Check if player already exists
         if let Some(idx) = self.players.iter().position(|(n, _)| *n == name) {
             self.players[idx].1 = joined_at;
@@ -39,6 +40,7 @@ impl ServerState {
     /// Remove a player from the server.
     /// Uses swap_remove for O(1) removal (order doesn't matter for players).
     pub fn remove_player(&mut self, name: &PlayerName) {
+        self.synced_since_boot = true;
         if let Some(idx) = self.players.iter().position(|(n, _)| n == name) {
             self.players.swap_remove(idx);
         }

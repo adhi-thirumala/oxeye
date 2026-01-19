@@ -129,10 +129,12 @@ pub async fn status(
         .title(format!("{}", server.name))
         .color(0x5865F2);
 
-    // Add status image if we have the api_key_hash
-    if let Some(ref hash) = api_key_hash {
-        let image_url = format!("{}/status-image/{}.png", data.public_url, hash);
-        embed = embed.image(image_url);
+    // Add status image only if synced and we have the api_key_hash
+    if is_synced {
+        if let Some(ref hash) = api_key_hash {
+            let image_url = format!("{}/status-image/{}.png?t={}", data.public_url, hash, now());
+            embed = embed.image(image_url);
+        }
     }
 
     let embed = if !is_synced {

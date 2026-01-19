@@ -63,7 +63,7 @@ public class OxeyeHttp {
           } else if (response.statusCode() == 202 && skinInfo != null) {
             // Backend needs the skin data - upload it
             OxeyeMod.LOGGER.info("Backend needs skin data for " + playerName + ", uploading...");
-            uploadSkinData(skinInfo);
+            uploadSkinData(playerName, skinInfo);
           } else if (response.statusCode() == 202) {
             OxeyeMod.LOGGER.warn("Backend requested skin but no skin info available for " + playerName);
           } else {
@@ -79,7 +79,7 @@ public class OxeyeHttp {
   /**
    * Upload skin data to the backend.
    */
-  private static void uploadSkinData(SkinUtil.SkinInfo skinInfo) {
+  private static void uploadSkinData(String playerName, SkinUtil.SkinInfo skinInfo) {
     // Download the skin PNG
     byte[] skinPng = SkinUtil.downloadSkinPng(skinInfo.textureUrl);
     if (skinPng == null) {
@@ -92,6 +92,7 @@ public class OxeyeHttp {
 
     // Build the request body
     String json = GSON.toJson(Map.of(
+        "player", playerName,
         "texture_hash", skinInfo.textureHash,
         "skin_data", skinBase64,
         "texture_url", skinInfo.textureUrl
