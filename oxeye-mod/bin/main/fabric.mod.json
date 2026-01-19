@@ -1,0 +1,34 @@
+{
+  "schemaVersion": 1,
+  "id": "oxeye-mod",
+  "version": "${version}",
+  "name": "oxeye-mod",
+  "description": "serverside portion of oxeye - a discord bot that keeps an eye on the players on ur server and shows your discord server who's on",
+  "authors": ["Adhi Thirumala"],
+  "contact": {
+    "email": "me@adhithirumala.com"
+  },
+  "license": "GPL-3.0",
+  "icon": "../../../../assets/Oxeye_Daisy.webp",
+  "environment": "server",
+  "entrypoints": {
+    "fabric-datagen": [
+      "org.adhiadhi.oxeyeMod.client.OxeyeModDataGenerator"
+    ],
+    "main": [
+      "org.adhiadhi.oxeyeMod.OxeyeMod"
+    ]
+  },
+  "mixins": [
+    "oxeye-mod.mixins.json",
+    {
+      "config": "oxeye-mod.client.mixins.json",
+      "environment": "client"
+    }
+  ],
+  "depends": {
+    "fabricloader": ">=${loader_version}",
+    "fabric-api": "*",
+    "minecraft": "${minecraft_version}"
+  }
+}

@@ -27,6 +27,18 @@ pub enum ValidationError {
 
     #[error("Server name too long (max 100 characters, got {0})")]
     ServerNameTooLong(usize),
+
+    #[error("Texture hash cannot be empty")]
+    TextureHashEmpty,
+
+    #[error("Texture hash has invalid format (expected 64-character hex string)")]
+    TextureHashInvalidFormat,
+
+    #[error("Skin data cannot be empty")]
+    SkinDataEmpty,
+
+    #[error("Skin data too large (max {max} bytes, got {actual})")]
+    SkinDataTooLarge { max: usize, actual: usize },
 }
 
 /// Validates a Minecraft player name
@@ -109,6 +121,52 @@ pub fn validate_server_name(name: &str) -> Result<(), ValidationError> {
 
     if name.len() > 100 {
         return Err(ValidationError::ServerNameTooLong(name.len()));
+    }
+
+    Ok(())
+}
+
+/// Validates a texture hash (SHA256 of GameProfile texture value)
+///
+/// Rules:
+/// - Cannot be empty
+/// - Must be 64 characters (SHA256 hex string)
+/// - Must contain only hex characters
+pub fn validate_texture_hash(hash: &str) -> Result<(), ValidationError> {
+    if hash.is_empty() {
+        return Err(ValidationError::TextureHashEmpty);
+    }
+
+    // SHA256 produces 64 hex characters
+    if hash.len() != 64 {
+        return Err(ValidationError::TextureHashInvalidFormat);
+    }
+
+    // Must be valid hex
+    if !hash.chars().all(|c| c.is_ascii_hexdigit()) {
+        return Err(ValidationError::TextureHashInvalidFormat);
+    }
+
+    Ok(())
+}
+
+/// Validates base64-encoded skin data
+///
+/// Rules:
+/// - Cannot be empty
+/// - Max 50KB (skin PNGs are typically ~5-15KB)
+pub fn validate_skin_data(data: &str) -> Result<(), ValidationError> {
+    const MAX_SKIN_SIZE: usize = 50 * 1024; // 50KB base64 (actual PNG will be smaller)
+
+    if data.is_empty() {
+        return Err(ValidationError::SkinDataEmpty);
+    }
+
+    if data.len() > MAX_SKIN_SIZE {
+        return Err(ValidationError::SkinDataTooLarge {
+            max: MAX_SKIN_SIZE,
+            actual: data.len(),
+        });
     }
 
     Ok(())
@@ -257,6 +315,85 @@ mod tests {
         assert_eq!(
             validate_server_name(&long_name),
             Err(ValidationError::ServerNameTooLong(101))
+        );
+    }
+
+    // Texture hash validation tests
+    #[test]
+    fn test_valid_texture_hash() {
+        // Valid SHA256 hex string (64 characters)
+        let valid_hash = "a".repeat(64);
+        assert!(validate_texture_hash(&valid_hash).is_ok());
+
+        let valid_hash = "0123456789abcdef".repeat(4);
+        assert!(validate_texture_hash(&valid_hash).is_ok());
+
+        let valid_hash = "ABCDEF0123456789".repeat(4);
+        assert!(validate_texture_hash(&valid_hash).is_ok());
+    }
+
+    #[test]
+    fn test_empty_texture_hash() {
+        assert_eq!(
+            validate_texture_hash(""),
+            Err(ValidationError::TextureHashEmpty)
+        );
+    }
+
+    #[test]
+    fn test_texture_hash_wrong_length() {
+        // Too short
+        let short_hash = "a".repeat(63);
+        assert_eq!(
+            validate_texture_hash(&short_hash),
+            Err(ValidationError::TextureHashInvalidFormat)
+        );
+
+        // Too long
+        let long_hash = "a".repeat(65);
+        assert_eq!(
+            validate_texture_hash(&long_hash),
+            Err(ValidationError::TextureHashInvalidFormat)
+        );
+    }
+
+    #[test]
+    fn test_texture_hash_invalid_chars() {
+        // Contains non-hex characters
+        let invalid_hash = "g".repeat(64);
+        assert_eq!(
+            validate_texture_hash(&invalid_hash),
+            Err(ValidationError::TextureHashInvalidFormat)
+        );
+
+        let invalid_hash = "z".repeat(64);
+        assert_eq!(
+            validate_texture_hash(&invalid_hash),
+            Err(ValidationError::TextureHashInvalidFormat)
+        );
+    }
+
+    // Skin data validation tests
+    #[test]
+    fn test_valid_skin_data() {
+        let valid_data = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk";
+        assert!(validate_skin_data(valid_data).is_ok());
+    }
+
+    #[test]
+    fn test_empty_skin_data() {
+        assert_eq!(validate_skin_data(""), Err(ValidationError::SkinDataEmpty));
+    }
+
+    #[test]
+    fn test_skin_data_too_large() {
+        let large_data = "A".repeat(51 * 1024); // 51KB
+        assert_eq!(
+            validate_skin_data(&large_data),
+            Err(ValidationError::SkinDataTooLarge {
+                max: 50 * 1024,
+                actual: 51 * 1024
+            })
         );
     }
 }

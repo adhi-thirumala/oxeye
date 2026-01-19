@@ -16,9 +16,122 @@ public class OxeyeHttp {
   private static final Gson GSON = new Gson();
   private static volatile String lastBootId = null;
 
-  public static void sendJoinRequest(String playerName) throws URISyntaxException {
-    OxeyeMod.LOGGER.info("Sending join request for player: " + playerName);
-    postAuthenticatedAsync("/join", "{\"player\":\"" + playerName + "\"}");
+  /**
+   * Send a join request with optional skin information.
+   * If the backend returns 202, it means we need to upload the skin data.
+   *
+   * @param playerName The player's name
+   * @param skinInfo   Optional skin information (null if not available)
+   */
+  public static void sendJoinRequest(String playerName, SkinUtil.SkinInfo skinInfo) throws URISyntaxException {
+    OxeyeMod.LOGGER.info("Sending join request for player: " + playerName +
+        (skinInfo != null ? " (with texture hash)" : " (no skin info)"));
+
+    // Build the request body
+    StringBuilder json = new StringBuilder();
+    json.append("{\"player\":\"").append(playerName).append("\"");
+    if (skinInfo != null) {
+      json.append(",\"texture_hash\":\"").append(skinInfo.textureHash).append("\"");
+    }
+    json.append("}");
+
+    // Send the join request
+    sendJoinRequestWithSkinHandling(playerName, json.toString(), skinInfo);
+  }
+
+  /**
+   * Send join request and handle 202 response by uploading skin data.
+   */
+  private static void sendJoinRequestWithSkinHandling(String playerName, String jsonBody,
+      SkinUtil.SkinInfo skinInfo) throws URISyntaxException {
+    OxeyeConfig config = OxeyeMod.CONFIG;
+    URI uri = getBaseUri().resolve("/join");
+
+    HttpRequest req = HttpRequest.newBuilder()
+        .uri(uri)
+        .header("Content-Type", "application/json")
+        .header("Authorization", "Bearer " + config.getApiToken())
+        .POST(HttpRequest.BodyPublishers.ofString(jsonBody))
+        .build();
+
+    client.sendAsync(req, HttpResponse.BodyHandlers.ofString())
+        .thenAccept(response -> {
+          checkBootIdChange(response);
+
+          if (response.statusCode() == 200) {
+            OxeyeMod.LOGGER.info("Join request succeeded for " + playerName + " (skin already known)");
+          } else if (response.statusCode() == 202 && skinInfo != null) {
+            // Backend needs the skin data - upload it
+            OxeyeMod.LOGGER.info("Backend needs skin data for " + playerName + ", uploading...");
+            uploadSkinData(playerName, skinInfo);
+          } else if (response.statusCode() == 202) {
+            OxeyeMod.LOGGER.warn("Backend requested skin but no skin info available for " + playerName);
+          } else {
+            OxeyeMod.LOGGER.error("Join request failed for " + playerName + ": " + parseErrorMessage(response));
+          }
+        })
+        .exceptionally(e -> {
+          OxeyeMod.LOGGER.error("Join request failed for " + playerName + ": " + e.getMessage());
+          return null;
+        });
+  }
+
+  /**
+   * Upload skin data to the backend.
+   */
+  private static void uploadSkinData(String playerName, SkinUtil.SkinInfo skinInfo) {
+    // Download the skin PNG
+    byte[] skinPng = SkinUtil.downloadSkinPng(skinInfo.textureUrl);
+    if (skinPng == null) {
+      OxeyeMod.LOGGER.error("Failed to download skin from " + skinInfo.textureUrl);
+      return;
+    }
+
+    // Encode to base64
+    String skinBase64 = java.util.Base64.getEncoder().encodeToString(skinPng);
+
+    // Build the request body
+    String json = GSON.toJson(Map.of(
+        "player", playerName,
+        "texture_hash", skinInfo.textureHash,
+        "skin_data", skinBase64,
+        "texture_url", skinInfo.textureUrl
+    ));
+
+    try {
+      sendSkinRequest(json);
+    } catch (URISyntaxException e) {
+      OxeyeMod.LOGGER.error("Failed to send skin request: " + e.getMessage());
+    }
+  }
+
+  /**
+   * Send skin data to the backend.
+   */
+  private static void sendSkinRequest(String jsonBody) throws URISyntaxException {
+    OxeyeConfig config = OxeyeMod.CONFIG;
+    URI uri = getBaseUri().resolve("/skin");
+
+    HttpRequest req = HttpRequest.newBuilder()
+        .uri(uri)
+        .header("Content-Type", "application/json")
+        .header("Authorization", "Bearer " + config.getApiToken())
+        .POST(HttpRequest.BodyPublishers.ofString(jsonBody))
+        .build();
+
+    client.sendAsync(req, HttpResponse.BodyHandlers.ofString())
+        .thenAccept(response -> {
+          checkBootIdChange(response);
+          if (response.statusCode() == 200) {
+            OxeyeMod.LOGGER.info("Skin upload succeeded");
+          } else {
+            OxeyeMod.LOGGER.error("Skin upload failed: " + parseErrorMessage(response));
+          }
+        })
+        .exceptionally(e -> {
+          OxeyeMod.LOGGER.error("Skin upload failed: " + e.getMessage());
+          return null;
+        });
   }
 
   public static void sendLeaveRequest(String playerName) throws URISyntaxException {

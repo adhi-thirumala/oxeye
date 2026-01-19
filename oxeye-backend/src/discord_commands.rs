@@ -8,10 +8,7 @@ use poise::serenity_prelude::{CreateEmbed, CreateEmbedFooter};
 pub(crate) type Error = Box<dyn std::error::Error + Send + Sync>;
 
 /// Autocomplete function for server names - suggests servers from current guild
-async fn autocomplete_server_name(
-    ctx: Context<'_>,
-    partial: &str,
-) -> Vec<String> {
+async fn autocomplete_server_name(ctx: Context<'_>, partial: &str) -> Vec<String> {
     // Get guild_id from context
     let guild_id = match ctx.guild_id() {
         Some(id) => id.get(),
@@ -19,7 +16,12 @@ async fn autocomplete_server_name(
     };
 
     // Fetch servers for this guild
-    let servers = ctx.data().db.get_servers_by_guild(guild_id).await.unwrap_or_default();
+    let servers = ctx
+        .data()
+        .db
+        .get_servers_by_guild(guild_id)
+        .await
+        .unwrap_or_default();
 
     // Filter server names by partial input (case-insensitive)
     servers
@@ -113,16 +115,27 @@ pub async fn status(
         .await
         .unwrap_or(false);
 
-    // Show sync status indicator
-    let (status_icon, status_text) = if is_synced {
-        ("🟢", format!("{} players online", server.players.len()))
+    // Get api_key_hash for building image URL
+    let api_key_hash = data.db.get_api_key_hash_by_name(guild_id, &name).await?;
+
+    // Build status text
+    let status_text = if is_synced {
+        format!("{} players online", server.players.len())
     } else {
-        ("⏳", "awaiting sync".to_string())
+        "awaiting sync".to_string()
     };
 
-    let embed = CreateEmbed::default()
-        .title(format!("{} {}", status_icon, server.name))
+    let mut embed = CreateEmbed::default()
+        .title(format!("{}", server.name))
         .color(0x5865F2);
+
+    // Add status image only if synced and we have the api_key_hash
+    if is_synced {
+        if let Some(ref hash) = api_key_hash {
+            let image_url = format!("{}/status-image/{}.png?t={}", data.public_url, hash, now());
+            embed = embed.image(image_url);
+        }
+    }
 
     let embed = if !is_synced {
         embed.description(format!(
@@ -131,9 +144,7 @@ pub async fn status(
             status_text
         ))
     } else if server.players.is_empty() {
-        embed
-            .description("No players online")
-            .field("Players", "0", true)
+        embed.description("No players online")
     } else {
         let current_time = now();
         let player_list: String = server
@@ -142,13 +153,11 @@ pub async fn status(
             .map(|p| {
                 let time_online = current_time - p.joined_at;
                 let formatted_time = format_time_online(time_online);
-                format!("- {} (Joined {} ago)", p.player_name, formatted_time)
+                format!("{} ({})", p.player_name, formatted_time)
             })
             .collect::<Vec<_>>()
-            .join("\n");
-        embed
-            .field("Online", format!("{}", server.players.len()), true)
-            .field("Players", player_list, false)
+            .join(" | ");
+        embed.description(format!("**{}** | {}", status_text, player_list))
     };
     ctx.send(CreateReply::default().embed(embed)).await?;
     Ok(())

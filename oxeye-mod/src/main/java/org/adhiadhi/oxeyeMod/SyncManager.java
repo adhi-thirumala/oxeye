@@ -32,12 +32,12 @@ public class SyncManager {
     }
   }
 
-  public static void onPlayerJoin(String playerName) {
+  public static void onPlayerJoin(String playerName, SkinUtil.SkinInfo skinInfo) {
     if (syncing.get()) {
       OxeyeMod.LOGGER.info("Sync in progress, queueing join for: " + playerName);
-      pendingEvents.add(() -> sendJoin(playerName));
+      pendingEvents.add(() -> sendJoin(playerName, skinInfo));
     } else {
-      sendJoin(playerName);
+      sendJoin(playerName, skinInfo);
     }
   }
 
@@ -62,9 +62,9 @@ public class SyncManager {
     }
   }
 
-  private static void sendJoin(String playerName) {
+  private static void sendJoin(String playerName, SkinUtil.SkinInfo skinInfo) {
     try {
-      OxeyeHttp.sendJoinRequest(playerName);
+      OxeyeHttp.sendJoinRequest(playerName, skinInfo);
     } catch (URISyntaxException e) {
       OxeyeMod.LOGGER.error("Failed to send join request: " + e.getMessage());
     }
