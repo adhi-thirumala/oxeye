@@ -1,11 +1,13 @@
 package org.adhiadhi.oxeyeMod;
 
 
+import com.mojang.authlib.GameProfile;
 import net.fabricmc.fabric.api.networking.v1.PacketSender;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.network.ServerGamePacketListenerImpl;
 
 import java.util.List;
+import java.util.Optional;
 
 public class OxeyeEvents {
   private static MinecraftServer currentServer;
@@ -14,6 +16,10 @@ public class OxeyeEvents {
     String name = serverGamePacketListener.player.getName().getString();
     OxeyeMod.LOGGER.info("Player joined: " + name);
     
+    // Extract skin info from the player's GameProfile
+    GameProfile profile = serverGamePacketListener.player.getGameProfile();
+    Optional<SkinUtil.SkinInfo> skinInfo = SkinUtil.extractSkinInfo(profile);
+    
     // If backend restarted (boot ID changed), auto-sync first
     if (SyncManager.needsSync() && !SyncManager.isSyncing()) {
       List<String> currentPlayers = minecraftServer.getPlayerList().getPlayers().stream()
@@ -21,7 +27,8 @@ public class OxeyeEvents {
       SyncManager.sync(currentPlayers);
     }
     
-    SyncManager.onPlayerJoin(name);
+    // Send join with skin info
+    SyncManager.onPlayerJoin(name, skinInfo.orElse(null));
   }
 
   public static void onPlayerDisconnect(ServerGamePacketListenerImpl serverGamePacketListener, MinecraftServer minecraftServer) {

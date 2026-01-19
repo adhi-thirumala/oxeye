@@ -77,6 +77,37 @@ impl Database {
 
                     -- Index for fast guild lookups
                     CREATE INDEX IF NOT EXISTS idx_servers_guild ON servers(guild_id);
+
+                    -- Stores unique skin textures (deduplicated by texture hash)
+                    CREATE TABLE IF NOT EXISTS skins (
+                        texture_hash TEXT PRIMARY KEY,
+                        texture_url TEXT,
+                        skin_data BLOB NOT NULL
+                    );
+
+                    -- Maps players to their current skin
+                    CREATE TABLE IF NOT EXISTS player_skins (
+                        player_name TEXT PRIMARY KEY,
+                        texture_hash TEXT NOT NULL,
+                        last_updated INTEGER NOT NULL,
+                        FOREIGN KEY (texture_hash) REFERENCES skins(texture_hash)
+                    );
+
+                    -- Stores rendered head images (one per unique skin)
+                    CREATE TABLE IF NOT EXISTS rendered_heads (
+                        texture_hash TEXT PRIMARY KEY,
+                        head_data BLOB NOT NULL,
+                        rendered_at INTEGER NOT NULL,
+                        FOREIGN KEY (texture_hash) REFERENCES skins(texture_hash)
+                    );
+
+                    -- Caches rendered status composite images (one per server)
+                    CREATE TABLE IF NOT EXISTS status_images (
+                        api_key_hash TEXT PRIMARY KEY,
+                        image_data BLOB NOT NULL,
+                        updated_at INTEGER NOT NULL,
+                        FOREIGN KEY (api_key_hash) REFERENCES servers(api_key_hash) ON DELETE CASCADE
+                    );
                     "#,
                 )?;
                 Ok(())
@@ -464,6 +495,26 @@ impl Database {
         Ok(exists)
     }
 
+    /// Get a server's API key hash by guild and name.
+    pub async fn get_api_key_hash_by_name(
+        &self,
+        guild_id: u64,
+        name: &str,
+    ) -> Result<Option<String>> {
+        let name = name.to_string();
+        let hash = self
+            .conn
+            .call(move |conn| {
+                conn.prepare_cached(
+                    "SELECT api_key_hash FROM servers WHERE guild_id = ?1 AND name = ?2",
+                )?
+                .query_row(params![guild_id, &name], |row| row.get(0))
+                .optional()
+            })
+            .await?;
+        Ok(hash)
+    }
+
     // ========================================================================
     // Online Players (in-memory cache)
     // ========================================================================
@@ -649,6 +700,196 @@ impl Database {
             name: server_name,
             players,
         })
+    }
+
+    // ========================================================================
+    // Skins and Rendered Heads
+    // ========================================================================
+
+    /// Check if a skin exists by texture hash.
+    pub async fn skin_exists(&self, texture_hash: &str) -> Result<bool> {
+        let hash = texture_hash.to_string();
+        let exists = self
+            .conn
+            .call(move |conn| {
+                let exists: bool = conn
+                    .prepare_cached("SELECT EXISTS(SELECT 1 FROM skins WHERE texture_hash = ?1)")?
+                    .query_row(params![&hash], |row| row.get(0))?;
+                Ok(exists)
+            })
+            .await?;
+        Ok(exists)
+    }
+
+    /// Store a skin (raw PNG data).
+    pub async fn store_skin(
+        &self,
+        texture_hash: String,
+        texture_url: Option<String>,
+        skin_data: Vec<u8>,
+    ) -> Result<()> {
+        let hash_for_log = texture_hash.clone();
+        self.conn
+            .call(move |conn| {
+                conn.prepare_cached(
+                    "INSERT OR REPLACE INTO skins (texture_hash, texture_url, skin_data) VALUES (?1, ?2, ?3)",
+                )?
+                .execute(params![&texture_hash, &texture_url, &skin_data])?;
+                Ok(())
+            })
+            .await?;
+
+        debug!(texture_hash = %hash_for_log, "stored skin");
+        Ok(())
+    }
+
+    /// Get skin data by texture hash.
+    pub async fn get_skin_data(&self, texture_hash: &str) -> Result<Option<Vec<u8>>> {
+        let hash = texture_hash.to_string();
+        let skin_data = self
+            .conn
+            .call(move |conn| {
+                conn.prepare_cached("SELECT skin_data FROM skins WHERE texture_hash = ?1")?
+                    .query_row(params![&hash], |row| row.get(0))
+                    .optional()
+            })
+            .await?;
+        Ok(skin_data)
+    }
+
+    /// Update player's current skin mapping.
+    pub async fn update_player_skin(
+        &self,
+        player_name: &str,
+        texture_hash: &str,
+        now: i64,
+    ) -> Result<()> {
+        let name = player_name.to_string();
+        let hash = texture_hash.to_string();
+        self.conn
+            .call(move |conn| {
+                conn.prepare_cached(
+                    "INSERT OR REPLACE INTO player_skins (player_name, texture_hash, last_updated) VALUES (?1, ?2, ?3)",
+                )?
+                .execute(params![&name, &hash, now])?;
+                Ok(())
+            })
+            .await?;
+
+        debug!(player_name, texture_hash, "updated player skin");
+        Ok(())
+    }
+
+    /// Get a player's current texture hash.
+    pub async fn get_player_texture_hash(&self, player_name: &str) -> Result<Option<String>> {
+        let name = player_name.to_string();
+        let hash = self
+            .conn
+            .call(move |conn| {
+                conn.prepare_cached("SELECT texture_hash FROM player_skins WHERE player_name = ?1")?
+                    .query_row(params![&name], |row| row.get(0))
+                    .optional()
+            })
+            .await?;
+        Ok(hash)
+    }
+
+    /// Store a rendered head image.
+    pub async fn store_rendered_head(
+        &self,
+        texture_hash: String,
+        head_data: Vec<u8>,
+        now: i64,
+    ) -> Result<()> {
+        let hash_for_log = texture_hash.clone();
+        self.conn
+            .call(move |conn| {
+                conn.prepare_cached(
+                    "INSERT OR REPLACE INTO rendered_heads (texture_hash, head_data, rendered_at) VALUES (?1, ?2, ?3)",
+                )?
+                .execute(params![&texture_hash, &head_data, now])?;
+                Ok(())
+            })
+            .await?;
+
+        debug!(texture_hash = %hash_for_log, "stored rendered head");
+        Ok(())
+    }
+
+    /// Get a rendered head by texture hash.
+    pub async fn get_rendered_head(&self, texture_hash: &str) -> Result<Option<Vec<u8>>> {
+        let hash = texture_hash.to_string();
+        let head_data = self
+            .conn
+            .call(move |conn| {
+                conn.prepare_cached("SELECT head_data FROM rendered_heads WHERE texture_hash = ?1")?
+                    .query_row(params![&hash], |row| row.get(0))
+                    .optional()
+            })
+            .await?;
+        Ok(head_data)
+    }
+
+    // ========================================================================
+    // Status Composite Images (Cache)
+    // ========================================================================
+
+    /// Store a cached status composite image for a server.
+    pub async fn store_status_image(
+        &self,
+        api_key_hash: String,
+        image_data: Vec<u8>,
+        now: i64,
+    ) -> Result<()> {
+        self.conn
+            .call(move |conn| {
+                conn.prepare_cached(
+                    "INSERT OR REPLACE INTO status_images (api_key_hash, image_data, updated_at) VALUES (?1, ?2, ?3)",
+                )?
+                .execute(params![&api_key_hash, &image_data, now])?;
+                Ok(())
+            })
+            .await?;
+
+        debug!("stored status image");
+        Ok(())
+    }
+
+    /// Get a cached status composite image.
+    pub async fn get_status_image(&self, api_key_hash: &str) -> Result<Option<Vec<u8>>> {
+        let hash = api_key_hash.to_string();
+        let image_data = self
+            .conn
+            .call(move |conn| {
+                conn.prepare_cached("SELECT image_data FROM status_images WHERE api_key_hash = ?1")?
+                    .query_row(params![&hash], |row| row.get(0))
+                    .optional()
+            })
+            .await?;
+        Ok(image_data)
+    }
+
+    /// Get players with their texture hashes for a server (for composite rendering).
+    pub async fn get_players_with_heads(
+        &self,
+        api_key_hash: &str,
+    ) -> Result<Vec<(PlayerName, Option<String>)>> {
+        // Get online players from cache
+        let players: Vec<PlayerName> = match self.cache.get_async(api_key_hash).await {
+            Some(entry) => entry.get().players.iter().map(|(name, _)| *name).collect(),
+            None => Vec::new(),
+        };
+
+        // Look up texture hashes for each player
+        let mut result = Vec::with_capacity(players.len());
+        for player_name in players {
+            let hash = self.get_player_texture_hash(player_name.as_str()).await?;
+            result.push((player_name, hash));
+        }
+
+        // Sort by player name for consistent ordering
+        result.sort_by(|a, b| a.0.cmp(&b.0));
+        Ok(result)
     }
 }
 

@@ -9,6 +9,7 @@ type Context<'a> = poise::Context<'a, crate::Data, crate::discord_commands::Erro
 
 pub(crate) struct Data {
     pub(crate) db: Database,
+    pub(crate) public_url: String,
 }
 
 #[tokio::main]
@@ -92,10 +93,14 @@ async fn main() {
             },
             ..Default::default()
         })
-        .setup(|ctx, _ready, framework| {
+        .setup(move |ctx, _ready, framework| {
+            let public_url = config.public_url.clone();
             Box::pin(async move {
                 poise::builtins::register_globally(ctx, &framework.options().commands).await?;
-                Ok(Data { db: db.clone() })
+                Ok(Data {
+                    db: db.clone(),
+                    public_url,
+                })
             })
         })
         .build();

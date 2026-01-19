@@ -42,3 +42,11 @@ poise = "0.6.1"
 # special data structures
 scc = "3.4.8"
 arrayvec = "0.7.6"
+
+# Image processing (for skin rendering)
+image = { version = "0.25", default-features = false, features = ["png"] }
+imageproc = "0.25"
+ab_glyph = "0.2"
+
+# Encoding
+base64 = "0.22"

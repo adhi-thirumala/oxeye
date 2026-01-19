@@ -55,6 +55,10 @@ pub struct Config {
     /// Burst size for general endpoints
     /// Env: RATE_LIMIT_GENERAL_BURST (default: 20)
     pub rate_limit_general_burst: u32,
+
+    /// Public URL for the backend (used for image URLs in Discord embeds)
+    /// Env: PUBLIC_URL (default: "http://localhost:3000")
+    pub public_url: String,
 }
 
 impl Config {
@@ -76,6 +80,7 @@ impl Config {
             rate_limit_player_burst: env_or_default("RATE_LIMIT_PLAYER_BURST", 100),
             rate_limit_general_per_sec: env_or_default("RATE_LIMIT_GENERAL_PER_SEC", 10),
             rate_limit_general_burst: env_or_default("RATE_LIMIT_GENERAL_BURST", 20),
+            public_url: env_or_default_string("PUBLIC_URL", "http://localhost:3000"),
         }
     }
 
@@ -94,6 +99,7 @@ impl Config {
             rate_limit_player_burst: 100,
             rate_limit_general_per_sec: 10,
             rate_limit_general_burst: 20,
+            public_url: "http://localhost:3000".to_string(),
         }
     }
 }

@@ -1,6 +1,7 @@
 pub mod config;
 mod error;
 pub mod helpers;
+pub mod render;
 mod routes;
 mod validation;
 
@@ -10,7 +11,12 @@ use axum::{
     routing::{get, post},
 };
 #[cfg(debug_assertions)]
-use axum::{body::Body, extract::Request, middleware::{self, Next}, response::Response};
+use axum::{
+    body::Body,
+    extract::Request,
+    middleware::{self, Next},
+    response::Response,
+};
 #[cfg(debug_assertions)]
 use http_body_util::BodyExt;
 use std::sync::Arc;
@@ -62,7 +68,11 @@ impl Default for RateLimitConfig {
 #[cfg(debug_assertions)]
 async fn log_request_body(request: Request, next: Next) -> Response {
     let (parts, body) = request.into_parts();
-    let bytes = body.collect().await.map(|b| b.to_bytes()).unwrap_or_default();
+    let bytes = body
+        .collect()
+        .await
+        .map(|b| b.to_bytes())
+        .unwrap_or_default();
 
     if let Ok(body_str) = std::str::from_utf8(&bytes) {
         tracing::debug!(
@@ -138,6 +148,7 @@ pub fn create_app(
         .route("/join", post(routes::join))
         .route("/leave", post(routes::leave))
         .route("/sync", post(routes::sync))
+        .route("/skin", post(routes::upload_skin))
         .layer(GovernorLayer::new(player_governor));
 
     // Routes with general rate limiting
@@ -146,11 +157,17 @@ pub fn create_app(
         .route("/disconnect", post(routes::disconnect))
         .layer(GovernorLayer::new(general_governor));
 
+    // Image routes (no rate limiting - cacheable and served from DB)
+    let image_routes = Router::new()
+        .route("/heads/{hash}", get(routes::get_head))
+        .route("/status-image/{hash}", get(routes::get_status_image));
+
     let router = Router::new()
         .route("/health", get(|| async { StatusCode::OK }))
         .merge(connect_routes)
         .merge(player_routes)
         .merge(general_routes)
+        .merge(image_routes)
         .layer(boot_id_header)
         .layer(TimeoutLayer::with_status_code(
             StatusCode::REQUEST_TIMEOUT,
