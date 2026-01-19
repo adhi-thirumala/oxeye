@@ -132,8 +132,12 @@ pub async fn status(
     // Add status image only if synced and we have the api_key_hash
     if is_synced {
         if let Some(ref hash) = api_key_hash {
-            let image_url = format!("{}/status-image/{}.png?t={}", data.public_url, hash, now());
-            embed = embed.image(image_url);
+            let base_url = data.public_url.trim_end_matches('/');
+            if !base_url.is_empty() {
+                let image_url = format!("{}/status-image/{}.png?t={}", base_url, hash, now());
+                tracing::info!("Generated status image URL: {}", image_url);
+                embed = embed.image(image_url);
+            }
         }
     }
 
