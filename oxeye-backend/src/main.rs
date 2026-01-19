@@ -29,11 +29,12 @@ async fn main() {
     // Load configuration from environment variables or use defaults
     let config = oxeye_backend::config::Config::from_env();
     tracing::info!(
-        "Configuration: port={}, db_path={}, body_limit={}KB, timeout={}s",
+        "Configuration: port={}, db_path={}, body_limit={}KB, timeout={}s, backend_url={}",
         config.port,
         config.database_path,
         config.request_body_limit / 1024,
-        config.request_timeout.as_secs()
+        config.request_timeout.as_secs(),
+        config.public_url
     );
     tracing::info!(
         "Rate limits: connect={}/min (burst {}), player={}/sec (burst {}), general={}/sec (burst {})",
