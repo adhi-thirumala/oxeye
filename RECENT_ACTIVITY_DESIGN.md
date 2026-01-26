@@ -2,119 +2,113 @@
 
 ## Overview
 
-This feature extends Oxeye to track **recent player activity** and **offline duration**, enabling users to see who's been on their Minecraft servers recently and how long they've been offline.
+This feature extends Oxeye to track **recent player activity** and **last seen timestamps**, enabling users to see who's been on their Minecraft servers within a configurable time window (default: last 24 hours) and when they were last seen.
 
 ## Problem Statement
 
-Currently, Oxeye only tracks players who are **currently online**. Once a player disconnects, all information about their session is lost. Users want to:
+Currently, Oxeye only tracks players who are **currently online**. Once a player disconnects, all information about them is lost. Users want to:
 
-1. See which players have been on recently (even if they're currently offline)
-2. Know how long a player has been offline
-3. Understand recent server activity patterns
+1. See which players have been on recently (within the last day by default)
+2. Know when each player was last seen
+3. Understand recent server activity patterns without needing persistent history
 
 ## Design Decisions
 
 ### 1. Data Storage Strategy
 
-**Choice: Persistent SQLite table for player sessions**
+**Choice: In-memory tracking with configurable time window**
 
-We'll create a new `player_sessions` table to track historical join/leave events:
+We'll track recent player activity using an in-memory data structure within the existing player cache. Each player entry will include a `last_seen` timestamp:
 
-```sql
-CREATE TABLE player_sessions (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    api_key_hash TEXT NOT NULL,
-    player_name TEXT NOT NULL,
-    joined_at INTEGER NOT NULL,    -- Unix timestamp
-    left_at INTEGER,                -- NULL if still online
-    FOREIGN KEY (api_key_hash) REFERENCES servers(api_key_hash) ON DELETE CASCADE
-);
+```rust
+struct PlayerActivityCache {
+    // Existing player cache
+    players: HashMap<ApiKeyHash, HashSet<PlayerName>>,
 
-CREATE INDEX idx_sessions_server_time ON player_sessions(api_key_hash, left_at DESC);
-CREATE INDEX idx_sessions_player ON player_sessions(player_name);
+    // New: Track when each player was last seen
+    last_seen: HashMap<(ApiKeyHash, PlayerName), i64>,  // Unix timestamp
+}
 ```
 
-**Why persistent storage?**
-- Recent activity is valuable historical data that should survive backend restarts
-- Users expect to query "who was on yesterday" even after server maintenance
-- Session history enables future analytics features
+**Why in-memory storage?**
+- Simplicity: No database schema changes, migrations, or cleanup tasks
+- Performance: Instant lookups with no database queries
+- Sufficient for use case: Recent activity within a configurable window (default 1 day)
+- No persistence needed: If backend restarts, we'll rebuild tracking from incoming server syncs
+- Lightweight: Only stores timestamps, not full session records
 
-### 2. Session Tracking
+### 2. Activity Tracking
 
-**When to create/update sessions:**
+**When to update last seen timestamps:**
 
 1. **Player joins** (`POST /join`)
-   - Create a new session record with `joined_at` timestamp
-   - `left_at` is NULL (still online)
+   - Update `last_seen` timestamp to current time
+   - Add player to active players cache
 
 2. **Player leaves** (`POST /leave`)
-   - Update the session record, setting `left_at` to current timestamp
+   - Update `last_seen` timestamp to current time
+   - Remove player from active players cache
+   - Keep `last_seen` timestamp in memory for configured window
 
 3. **Server sync** (`POST /sync`)
-   - For players in the sync list who aren't in cache: create new sessions
-   - For players in cache who aren't in sync list: close their sessions (set `left_at`)
+   - For all players in sync list: update their `last_seen` timestamps
+   - For players in cache but not in sync list: update `last_seen` and mark as offline
 
 4. **Server disconnection**
-   - Close all open sessions for that server (set `left_at` to current time)
+   - Update `last_seen` for all active players on that server
+   - Clear from active players cache
 
 ### 3. Data Retention
 
-**Retention policy: 30 days**
+**Retention policy: Configurable time window (default 24 hours)**
 
-Sessions older than 30 days should be automatically pruned to prevent unbounded growth:
+Last seen entries are automatically filtered when querying:
+- Only return players whose `last_seen` timestamp is within the configured window
+- No explicit cleanup needed - entries naturally age out when queried
+- Optional: Periodic cleanup to remove entries older than 2x the window to prevent memory growth
 
-```sql
-DELETE FROM player_sessions
-WHERE left_at < ?1
-  AND left_at IS NOT NULL;
-```
-
-This cleanup can run:
-- On database initialization
-- Periodically (e.g., daily via a background task)
-- Before querying recent activity
-
-**Why 30 days?**
-- Balances historical insight with database size
-- Configurable via environment variable if users want more/less
-- Most "recent activity" queries care about the last few days, not months
+**Why 24 hours default?**
+- Covers typical "who was on today" use case
+- Lightweight memory footprint
+- Configurable via environment variable for users who want longer history
+- Short enough that in-memory storage is practical
 
 ### 4. Query Interface
 
-**New database methods:**
+**New cache methods:**
 
 ```rust
-impl Database {
-    /// Get recent sessions for a server (active or recently ended).
-    /// Returns sessions that ended within `window_secs` or are still active.
-    pub async fn get_recent_sessions(
+impl PlayerCache {
+    /// Get recent activity for a server (active or recently seen).
+    /// Returns players seen within `window_secs` from now.
+    pub fn get_recent_activity(
         &self,
         api_key_hash: &str,
         window_secs: i64,
         now: i64
-    ) -> Result<Vec<PlayerSession>>;
+    ) -> Vec<PlayerActivity>;
 
-    /// Get all recent sessions across all servers in a guild.
-    pub async fn get_recent_sessions_for_guild(
+    /// Get all recent activity across all servers in a guild.
+    pub fn get_recent_activity_for_guild(
         &self,
         guild_id: u64,
         window_secs: i64,
         now: i64
-    ) -> Result<Vec<ServerRecentSessions>>;
+    ) -> Vec<ServerActivity>;
 
-    /// Cleanup old sessions (called periodically).
-    pub async fn cleanup_old_sessions(&self, before: i64) -> Result<u64>;
+    /// Optional: Cleanup entries older than threshold to prevent memory growth.
+    pub fn cleanup_old_activity(&mut self, before: i64);
 }
 
-pub struct PlayerSession {
+pub struct PlayerActivity {
     pub player_name: PlayerName,
-    pub joined_at: i64,
-    pub left_at: Option<i64>,  // None if still online
+    pub last_seen: i64,
+    pub is_online: bool,
 }
 
-pub struct ServerRecentSessions {
+pub struct ServerActivity {
     pub server_name: String,
-    pub sessions: Vec<PlayerSession>,
+    pub players: Vec<PlayerActivity>,
 }
 ```
 
@@ -133,19 +127,19 @@ Shows players who have been online recently, including offline duration.
 
 ```
 ┌──────────────────────────────────────────────────┐
-│ 📊 Recent Activity - survival                    │
+│ 📊 Recent Activity - survival (last 24h)         │
 ├──────────────────────────────────────────────────┤
 │ 🟢 Currently Online (3)                          │
-│ • Steve (joined 2h ago)                          │
-│ • Alex (joined 45m ago)                          │
-│ • Notch (joined 5m ago)                          │
+│ • Steve (last seen: online now)                  │
+│ • Alex (last seen: online now)                   │
+│ • Notch (last seen: online now)                  │
 │                                                  │
 │ 🔴 Recently Offline (5)                          │
-│ • jeb_ (offline 30m)                             │
-│ • Dinnerbone (offline 2h)                        │
-│ • Herobrine (offline 5h)                         │
-│ • Dream (offline 18h)                            │
-│ • Technoblade (offline 23h)                      │
+│ • jeb_ (last seen: 30m ago)                      │
+│ • Dinnerbone (last seen: 2h ago)                 │
+│ • Herobrine (last seen: 5h ago)                  │
+│ • Dream (last seen: 18h ago)                     │
+│ • Technoblade (last seen: 23h ago)               │
 │                                                  │
 │                                           Oxeye  │
 └──────────────────────────────────────────────────┘
@@ -173,39 +167,32 @@ Update the existing status command to show last seen time for offline players:
 
 ### 6. API Changes
 
-No new HTTP endpoints needed. The existing endpoints will be enhanced to track sessions:
+No new HTTP endpoints needed. The existing endpoints will be enhanced to update last seen timestamps:
 
-**`POST /join`** - Create new session record
-**`POST /leave`** - Close session record
-**`POST /sync`** - Reconcile session records with current player list
-**`POST /disconnect`** - Close all open sessions for the server
+**`POST /join`** - Update player's last seen timestamp
+**`POST /leave`** - Update player's last seen timestamp
+**`POST /sync`** - Update last seen timestamps for all players in sync
+**`POST /disconnect`** - Update last seen timestamps for all active players on server
 
 ### 7. Performance Considerations
 
-**Indexes:**
-- `idx_sessions_server_time` - Enables fast queries for recent sessions by server
-- `idx_sessions_player` - Enables fast lookups of a specific player's history
+**Memory overhead:**
+- HashMap entry: ~(32 bytes key + 8 bytes timestamp) = ~40 bytes per player
+- For 100 unique players in 24h: ~4KB total
+- Negligible compared to player skin cache
 
 **Query efficiency:**
-```sql
--- Get recent sessions (last 24h) for a server
-SELECT player_name, joined_at, left_at
-FROM player_sessions
-WHERE api_key_hash = ?1
-  AND (left_at IS NULL OR left_at > ?2)
-ORDER BY
-  CASE WHEN left_at IS NULL THEN 0 ELSE 1 END,  -- Online first
-  COALESCE(left_at, joined_at) DESC
-LIMIT 100;
-```
+- O(1) timestamp lookup per player
+- O(n) filtering for recent activity (where n = total tracked players)
+- For typical server (100 players): < 1ms query time
+- No database I/O required
 
 **Expected overhead:**
-- INSERT on player join: ~1ms
-- UPDATE on player leave: ~1ms
-- Storage: ~100 bytes per session record
-- For 100 players with 10 sessions/day each: ~100KB/day, ~3MB/month
+- Timestamp update on join/leave: < 0.1ms (HashMap insert)
+- Recent activity query: < 1ms (in-memory filtering)
+- Memory: ~40 bytes per unique player tracked
 
-This is negligible compared to the skin/image caching overhead already in the system.
+This is significantly lighter than the previous database approach.
 
 ### 8. Time Formatting
 
@@ -230,63 +217,61 @@ Examples:
 
 ### 9. Edge Cases
 
-1. **Server restart without sync**
-   - Open sessions remain open until next sync
-   - Status command shows "⚠️ Server not synced since backend restart"
+1. **Backend restart**
+   - In-memory cache is empty
+   - Last seen timestamps are lost (acceptable trade-off)
+   - Tracking resumes as servers sync and players join/leave
+   - Recent activity will be accurate within configured window after restart
 
-2. **Player rejoins before session timeout**
-   - Close previous session (set `left_at`)
-   - Create new session record
-   - Prevents inflated "online time" from single mega-session
+2. **Server disconnection**
+   - Update last seen for all active players before clearing
+   - Players show in recent activity list until they age out of window
 
-3. **Backend restart**
-   - All open sessions in DB show `left_at = NULL`
-   - On first sync per server, close old sessions
-   - Cache is rebuilt from server sync
+3. **Player rejoins multiple times**
+   - Last seen timestamp is simply updated each time
+   - No duplicate entries since we only store one timestamp per player
 
 4. **Time zones**
    - All timestamps are UTC (Unix timestamps)
    - Duration calculations are timezone-agnostic
-   - Discord renders relative times ("2h ago") automatically
+   - Discord renders relative times ("30m ago") automatically
 
 ## Implementation Plan
 
-### Phase 1: Database Layer (Core)
-1. Add `player_sessions` table to schema migration
-2. Implement session tracking methods:
-   - `create_session()`
-   - `close_session()`
-   - `get_recent_sessions()`
-   - `cleanup_old_sessions()`
-3. Add database tests for session tracking
+### Phase 1: Cache Layer (Core)
+1. Add `last_seen` HashMap to player cache structure
+2. Implement activity tracking methods:
+   - `update_last_seen()`
+   - `get_recent_activity()`
+   - `cleanup_old_activity()` (optional)
+3. Add unit tests for activity tracking
 
 ### Phase 2: API Integration
-1. Modify `POST /join` to create session records
-2. Modify `POST /leave` to close session records
-3. Modify `POST /sync` to reconcile sessions
-4. Add cleanup task on database initialization
+1. Modify `POST /join` to update last seen timestamps
+2. Modify `POST /leave` to update last seen timestamps
+3. Modify `POST /sync` to update last seen timestamps
+4. Modify `POST /disconnect` to update last seen timestamps
 
 ### Phase 3: Discord Commands
 1. Add `/oxeye recent` command
-2. Enhance `/oxeye status` to show last seen
+2. Enhance `/oxeye status` to show last seen info
 3. Add time formatting helper functions
 
 ### Phase 4: Testing & Polish
-1. Integration tests for session tracking
-2. Test edge cases (disconnects, restarts, etc.)
+1. Integration tests for activity tracking
+2. Test edge cases (restarts, disconnects, etc.)
 3. Documentation updates
 
 ## Configuration
 
-**New environment variables:**
+**New environment variable:**
 
 ```bash
-# Session retention period (days)
-SESSION_RETENTION_DAYS=30  # default: 30
-
 # Default recent activity window (hours)
 RECENT_ACTIVITY_WINDOW_HOURS=24  # default: 24
 ```
+
+Users can also override this per-command using the `timeframe` parameter in `/oxeye recent`.
 
 ## Future Enhancements (Out of Scope)
 
@@ -311,19 +296,21 @@ RECENT_ACTIVITY_WINDOW_HOURS=24  # default: 24
 
 This is a **backward-compatible** addition:
 - Existing functionality continues to work unchanged
-- New table is created on next backend startup
+- No database schema changes required
 - No breaking changes to existing commands or APIs
-- Session tracking starts from deployment forward (no backfill)
+- Activity tracking starts immediately upon deployment
+- After backend restart, tracking resumes from first sync/join/leave events
 
 ## Summary
 
-This design provides a robust foundation for tracking recent player activity:
+This design provides a lightweight foundation for tracking recent player activity:
 
-✅ **Persistent session tracking** with SQLite storage
+✅ **In-memory tracking** with configurable time window (default 24h)
+✅ **Simple last seen timestamps** for each player
 ✅ **Human-readable durations** in Discord embeds
-✅ **Efficient queries** with proper indexing
-✅ **Automatic cleanup** to prevent unbounded growth
+✅ **No database changes** required
+✅ **Minimal memory overhead** (~40 bytes per player)
 ✅ **Backward compatible** with existing functionality
-✅ **Extensible** for future analytics features
+✅ **Instant queries** with no I/O overhead
 
-The feature enhances user visibility into server activity while maintaining the simplicity and performance of the current system.
+The feature enhances user visibility into recent server activity with a simple, performant approach that doesn't require persistent storage.
