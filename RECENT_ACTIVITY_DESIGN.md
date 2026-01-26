@@ -12,26 +12,37 @@ Currently, Oxeye only tracks players who are **currently online**. Once a player
 
 ### 1. Data Storage Strategy
 
-**Choice: In-memory tracking with configurable time window**
+**Choice: Extend existing SCC cache with last_seen tracking**
 
-We'll track recent player activity using an in-memory data structure within the existing player cache. Each player entry will include a `last_seen` timestamp:
+We'll track recent player activity by extending the existing `ServerState` struct within the current `scc::HashMap`-based online cache. No new data structures needed:
 
 ```rust
-struct PlayerActivityCache {
-    // Existing player cache
-    players: HashMap<ApiKeyHash, HashSet<PlayerName>>,
+pub struct ServerState {
+    /// Online players with their join timestamps.
+    pub players: Vec<(PlayerName, i64)>,
 
-    // New: Track when each player was last seen
-    last_seen: HashMap<(ApiKeyHash, PlayerName), i64>,  // Unix timestamp
+    /// NEW: Recently offline players with their last_seen timestamps.
+    /// Entries are lazily removed when older than the configured window.
+    pub last_seen: HashMap<PlayerName, i64>,  // Unix timestamp
+
+    /// Whether this server has synced since backend restart.
+    pub synced_since_boot: bool,
 }
 ```
 
-**Why in-memory storage?**
-- Simplicity: No database schema changes, migrations, or cleanup tasks
-- Performance: Instant lookups with no database queries
-- Sufficient for use case: Recent activity within a configurable window (default 1 day)
-- No persistence needed: If backend restarts, we'll rebuild tracking from incoming server syncs
-- Lightweight: Only stores timestamps, not full session records
+The existing cache structure remains:
+```rust
+pub type OnlineCache = scc::HashMap<String, ServerState>;  // api_key_hash -> ServerState
+```
+
+**Why use the existing SCC cache?**
+- Already thread-safe: `scc::HashMap` provides lock-free concurrent access
+- Per-server isolation: `last_seen` is scoped to each server's `ServerState`
+- No additional data structures: Extends existing architecture naturally
+- Performance: Instant lookups with no database queries or additional locks
+- Simplicity: No separate cache management logic needed
+- Lightweight: Only stores timestamps (~8 bytes per player)
+- No persistence needed: Data resets on restart (acceptable for "recent activity")
 
 ### 2. Activity Tracking
 
@@ -54,38 +65,72 @@ struct PlayerActivityCache {
    - Update `last_seen` for all active players on that server
    - Clear from active players cache
 
-### 3. Data Retention
+### 3. Data Retention & TTL Cleanup
 
 **Retention policy: Configurable time window (default 24 hours)**
 
-Last seen entries are automatically filtered when querying:
-- Only return players whose `last_seen` timestamp is within the configured window
-- No explicit cleanup needed - entries naturally age out when queried
-- Optional: Periodic cleanup to remove entries older than 2x the window to prevent memory growth
+**Lazy cleanup strategy (O(1) amortized, not O(n)):**
+
+Instead of scanning all entries periodically, we remove stale entries **as we access them**:
+
+1. **During queries** (`get_recently_offline()`):
+   - Remove `last_seen` entries older than threshold **while iterating**
+   - Only touches entries we're reading anyway
+   - O(k) where k = entries checked, not O(n) for all players
+
+2. **On player events** (join/leave/sync):
+   - When updating a player's `last_seen`, remove it if it's too old
+   - Natural cleanup during normal operation
+
+This approach:
+- ✅ No O(n) scans of all cached players
+- ✅ No background cleanup tasks needed
+- ✅ Memory naturally bounded by activity rate
+- ✅ Each operation removes stale data for players it touches
 
 **Why 24 hours default?**
 - Covers typical "who was on today" use case
-- Lightweight memory footprint
+- Lightweight memory footprint (~8 bytes per player)
 - Configurable via environment variable for users who want longer history
-- Short enough that in-memory storage is practical
+- Lazy cleanup keeps memory usage minimal
 
 ### 4. Query Interface
 
-**New cache methods:**
+**Extended ServerState methods:**
 
 ```rust
-impl PlayerCache {
-    /// Get recently offline players for a server.
-    /// Returns offline players seen within `window_secs` from now.
-    pub fn get_recently_offline(
-        &self,
-        api_key_hash: &str,
-        window_secs: i64,
-        now: i64
-    ) -> Vec<OfflinePlayerInfo>;
+impl ServerState {
+    /// Update last_seen timestamp for a player.
+    /// Also removes the entry if it's older than the cutoff (lazy cleanup).
+    pub fn update_last_seen(&mut self, player_name: PlayerName, now: i64, cutoff: i64) {
+        // Remove if too old (lazy cleanup)
+        if now < cutoff {
+            self.last_seen.remove(&player_name);
+            return;
+        }
+        self.last_seen.insert(player_name, now);
+    }
 
-    /// Optional: Cleanup entries older than threshold to prevent memory growth.
-    pub fn cleanup_old_activity(&mut self, before: i64);
+    /// Get recently offline players (not currently online).
+    /// Removes stale entries older than cutoff during iteration (lazy cleanup).
+    pub fn get_recently_offline(&mut self, cutoff: i64) -> Vec<OfflinePlayerInfo> {
+        let online_players: HashSet<_> = self.players.iter().map(|(n, _)| n).collect();
+
+        // Collect recent offline players and remove stale entries
+        let mut result = Vec::new();
+        self.last_seen.retain(|name, &mut last_seen| {
+            if last_seen < cutoff {
+                false  // Remove stale entry (lazy cleanup)
+            } else if !online_players.contains(name) {
+                result.push(OfflinePlayerInfo { player_name: *name, last_seen });
+                true  // Keep entry
+            } else {
+                true  // Keep entry (player is online)
+            }
+        });
+
+        result
+    }
 }
 
 pub struct OfflinePlayerInfo {
@@ -93,6 +138,11 @@ pub struct OfflinePlayerInfo {
     pub last_seen: i64,  // Unix timestamp
 }
 ```
+
+**Key optimization:**
+- `update_last_seen()` performs lazy cleanup on single entries
+- `get_recently_offline()` uses `HashMap::retain()` to remove stale entries during iteration
+- No separate O(n) cleanup needed
 
 ### 5. Discord Commands
 
@@ -129,22 +179,29 @@ No new HTTP endpoints needed. The existing endpoints will be enhanced to update 
 ### 7. Performance Considerations
 
 **Memory overhead:**
-- HashMap entry: ~(32 bytes key + 8 bytes timestamp) = ~40 bytes per player
-- For 100 unique players in 24h: ~4KB total
+- `last_seen` HashMap entry: ~(16 bytes PlayerName + 8 bytes timestamp) = ~24 bytes per player
+- For 100 unique players in 24h: ~2.4KB per server
+- Stored within existing `ServerState` in SCC cache
+- Lazy cleanup prevents unbounded growth
 - Negligible compared to player skin cache
 
 **Query efficiency:**
-- O(1) timestamp lookup per player
-- O(n) filtering for recent activity (where n = total tracked players)
-- For typical server (100 players): < 1ms query time
+- Timestamp update: O(1) HashMap insert
+- Recent activity query: O(k) where k = `last_seen` entries (bounded by lazy cleanup)
 - No database I/O required
+- No global locks (SCC HashMap is lock-free)
+- For typical server (100 players): < 1ms query time
 
 **Expected overhead:**
 - Timestamp update on join/leave: < 0.1ms (HashMap insert)
-- Recent activity query: < 1ms (in-memory filtering)
-- Memory: ~40 bytes per unique player tracked
+- Recent activity query with lazy cleanup: < 1ms (in-memory filtering + retain)
+- Memory: ~24 bytes per unique player tracked
 
-This is significantly lighter than the previous database approach.
+**Lazy cleanup efficiency:**
+- No O(n) scans across all servers
+- Stale entries removed during normal reads/writes
+- Memory bounded by: `(activity_rate) × (window_duration)`
+- Example: 100 players/day × 24h window = ~2.4KB per server
 
 ### 8. Time Formatting
 
@@ -191,28 +248,44 @@ Examples:
 ## Implementation Plan
 
 ### Phase 1: Cache Layer (Core)
-1. Add `last_seen` HashMap to player cache structure
-2. Implement activity tracking methods:
-   - `update_last_seen()`
-   - `get_recent_activity()`
-   - `cleanup_old_activity()` (optional)
-3. Add unit tests for activity tracking
+1. **Extend `ServerState` struct** (oxeye-db/src/cache.rs):
+   - Add `last_seen: HashMap<PlayerName, i64>` field
+   - Implement `update_last_seen()` with lazy cleanup
+   - Implement `get_recently_offline()` with lazy cleanup via `retain()`
+2. **Update `ServerState::new()`** to initialize empty `last_seen` HashMap
+3. **Add unit tests** for:
+   - Last seen tracking
+   - Lazy cleanup during queries
+   - Stale entry removal
 
-### Phase 2: API Integration
-1. Modify `POST /join` to update last seen timestamps
-2. Modify `POST /leave` to update last seen timestamps
-3. Modify `POST /sync` to update last seen timestamps
-4. Modify `POST /disconnect` to update last seen timestamps
+### Phase 2: Database Layer Integration
+1. **Add helper method** to `Database` (oxeye-db/src/lib.rs):
+   - `get_recently_offline(api_key_hash, window_secs) -> Vec<OfflinePlayerInfo>`
+   - Calls `ServerState::get_recently_offline()` on the cached state
+2. **Modify existing methods** to call `update_last_seen()`:
+   - `player_join()` - update last_seen before adding to online list
+   - `player_leave()` - update last_seen after removing from online list
+   - `sync_players()` - update last_seen for all players in sync
+   - `delete_server_by_api_key()` - last_seen is cleared when server cache entry is removed
 
-### Phase 3: Discord Command Enhancement
-1. Enhance `/oxeye status` to show recently offline players as text
-2. Add time formatting helper functions
-3. Ensure no picture/image changes for offline players (text only)
+### Phase 3: API Integration
+1. **Configuration**: Add `RECENT_ACTIVITY_WINDOW_HOURS` env var to backend
+2. **Modify routes** (oxeye-backend/src/routes.rs):
+   - `POST /join`, `/leave`, `/sync` already call DB methods, which now update last_seen
+   - No route changes needed (logic is in DB layer)
 
-### Phase 4: Testing & Polish
+### Phase 4: Discord Command Enhancement
+1. **Enhance `/oxeye status`** (oxeye-bot):
+   - Call `db.get_recently_offline()` after getting online players
+   - Format as text list: "Last seen (within 24h): • player (Xm ago)"
+2. **Add time formatting helper** for human-readable durations
+3. **Ensure no picture changes** for offline players (text only)
+
+### Phase 5: Testing & Polish
 1. Integration tests for activity tracking
-2. Test edge cases (restarts, disconnects, etc.)
-3. Documentation updates
+2. Test lazy cleanup efficiency
+3. Test edge cases (restarts, disconnects, etc.)
+4. Documentation updates
 
 ## Configuration
 
@@ -255,12 +328,15 @@ This is a **backward-compatible** addition:
 
 This design provides a lightweight foundation for tracking recent player activity:
 
-✅ **In-memory tracking** with configurable time window (default 24h)
+✅ **Uses existing SCC cache** - extends `ServerState` struct, no new data structures
+✅ **Lock-free concurrency** - leverages existing `scc::HashMap` thread safety
+✅ **Lazy cleanup (not O(n))** - removes stale entries during reads/writes, not periodic scans
+✅ **Per-server isolation** - `last_seen` scoped to each server's state
+✅ **Minimal memory overhead** (~24 bytes per player, bounded by lazy cleanup)
 ✅ **Simple last seen timestamps** for each player
 ✅ **Human-readable durations** in Discord embeds
 ✅ **No database changes** required
-✅ **Minimal memory overhead** (~40 bytes per player)
 ✅ **Backward compatible** with existing functionality
 ✅ **Instant queries** with no I/O overhead
 
-The feature enhances user visibility into recent server activity with a simple, performant approach that doesn't require persistent storage.
+The feature enhances user visibility into recent server activity by naturally extending the existing cache architecture with efficient lazy cleanup.
