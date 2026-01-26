@@ -129,8 +129,8 @@ pub async fn status(
         .title(format!("{}", server.name))
         .color(0x5865F2);
 
-    // Add status image only if synced and we have the api_key_hash
-    if is_synced {
+    // Add status image only if synced, we have the api_key_hash, and there are players online
+    if is_synced && !server.players.is_empty() {
         if let Some(ref hash) = api_key_hash {
             let base_url = data.public_url.trim_end_matches('/');
             if !base_url.is_empty() {
