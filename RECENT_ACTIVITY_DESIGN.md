@@ -2,15 +2,11 @@
 
 ## Overview
 
-This feature extends Oxeye to track **recent player activity** and **last seen timestamps**, enabling users to see who's been on their Minecraft servers within a configurable time window (default: last 24 hours) and when they were last seen.
+This feature extends Oxeye to track **last seen timestamps** for recently offline players, enabling users to see when players were last on their Minecraft servers within a configurable time window (default: last 24 hours). This information is displayed as text additions to the existing `/oxeye status` command.
 
 ## Problem Statement
 
-Currently, Oxeye only tracks players who are **currently online**. Once a player disconnects, all information about them is lost. Users want to:
-
-1. See which players have been on recently (within the last day by default)
-2. Know when each player was last seen
-3. Understand recent server activity patterns without needing persistent history
+Currently, Oxeye only tracks players who are **currently online**. Once a player disconnects, all information about them is lost. Users want to see when players were last online within the existing `/oxeye status` command, without needing a separate command or persistent history.
 
 ## Design Decisions
 
@@ -79,91 +75,47 @@ Last seen entries are automatically filtered when querying:
 
 ```rust
 impl PlayerCache {
-    /// Get recent activity for a server (active or recently seen).
-    /// Returns players seen within `window_secs` from now.
-    pub fn get_recent_activity(
+    /// Get recently offline players for a server.
+    /// Returns offline players seen within `window_secs` from now.
+    pub fn get_recently_offline(
         &self,
         api_key_hash: &str,
         window_secs: i64,
         now: i64
-    ) -> Vec<PlayerActivity>;
-
-    /// Get all recent activity across all servers in a guild.
-    pub fn get_recent_activity_for_guild(
-        &self,
-        guild_id: u64,
-        window_secs: i64,
-        now: i64
-    ) -> Vec<ServerActivity>;
+    ) -> Vec<OfflinePlayerInfo>;
 
     /// Optional: Cleanup entries older than threshold to prevent memory growth.
     pub fn cleanup_old_activity(&mut self, before: i64);
 }
 
-pub struct PlayerActivity {
+pub struct OfflinePlayerInfo {
     pub player_name: PlayerName,
-    pub last_seen: i64,
-    pub is_online: bool,
-}
-
-pub struct ServerActivity {
-    pub server_name: String,
-    pub players: Vec<PlayerActivity>,
+    pub last_seen: i64,  // Unix timestamp
 }
 ```
 
 ### 5. Discord Commands
 
-**New command: `/oxeye recent [server] [timeframe]`**
+**Enhanced `/oxeye status` command:**
 
-Shows players who have been online recently, including offline duration.
-
-**Parameters:**
-- `server` (optional): Server name (defaults to all servers)
-- `timeframe` (optional): How far back to look (default: 24h)
-  - Options: `1h`, `6h`, `12h`, `24h`, `7d`, `30d`
+Update the existing status command to show last seen time for recently offline players. The existing embedded image/picture showing online players remains unchanged - offline players are only shown as text additions below.
 
 **Example output:**
 
 ```
-┌──────────────────────────────────────────────────┐
-│ 📊 Recent Activity - survival (last 24h)         │
-├──────────────────────────────────────────────────┤
-│ 🟢 Currently Online (3)                          │
-│ • Steve (last seen: online now)                  │
-│ • Alex (last seen: online now)                   │
-│ • Notch (last seen: online now)                  │
-│                                                  │
-│ 🔴 Recently Offline (5)                          │
-│ • jeb_ (last seen: 30m ago)                      │
-│ • Dinnerbone (last seen: 2h ago)                 │
-│ • Herobrine (last seen: 5h ago)                  │
-│ • Dream (last seen: 18h ago)                     │
-│ • Technoblade (last seen: 23h ago)               │
-│                                                  │
-│                                           Oxeye  │
-└──────────────────────────────────────────────────┘
+[Existing server status embed with player head images - unchanged]
+
+Last seen (within 24h):
+• jeb_ (30m ago)
+• Dinnerbone (2h ago)
+• Herobrine (5h ago)
 ```
 
-**Enhanced `/oxeye status` command:**
-
-Update the existing status command to show last seen time for offline players:
-
-```
-┌──────────────────────────────────────────────────┐
-│ 🟢 survival — 3 online                           │
-├──────────────────────────────────────────────────┤
-│ Steve (joined 2h ago)                            │
-│ Alex (joined 45m ago)                            │
-│ Notch (joined 5m ago)                            │
-│                                                  │
-│ Last seen:                                       │
-│ • jeb_ (30m ago)                                 │
-│ • Dinnerbone (2h ago)                            │
-│                                                  │
-│                                           Oxeye  │
-└──────────────────────────────────────────────────┘
-```
+**Key points:**
+- **No new commands** - all functionality integrated into existing `/oxeye status`
+- **No picture/image changes** - player head images only shown for currently online players (existing behavior)
+- **Text-only additions** - offline players shown as simple text list below the online players
+- **Configurable window** - default 24h, configurable via environment variable
 
 ### 6. API Changes
 
@@ -252,10 +204,10 @@ Examples:
 3. Modify `POST /sync` to update last seen timestamps
 4. Modify `POST /disconnect` to update last seen timestamps
 
-### Phase 3: Discord Commands
-1. Add `/oxeye recent` command
-2. Enhance `/oxeye status` to show last seen info
-3. Add time formatting helper functions
+### Phase 3: Discord Command Enhancement
+1. Enhance `/oxeye status` to show recently offline players as text
+2. Add time formatting helper functions
+3. Ensure no picture/image changes for offline players (text only)
 
 ### Phase 4: Testing & Polish
 1. Integration tests for activity tracking
@@ -270,8 +222,6 @@ Examples:
 # Default recent activity window (hours)
 RECENT_ACTIVITY_WINDOW_HOURS=24  # default: 24
 ```
-
-Users can also override this per-command using the `timeframe` parameter in `/oxeye recent`.
 
 ## Future Enhancements (Out of Scope)
 
