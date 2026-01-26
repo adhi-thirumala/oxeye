@@ -17,13 +17,20 @@ Currently, Oxeye only tracks players who are **currently online**. Once a player
 We'll track recent player activity by extending the existing `ServerState` struct within the current `scc::HashMap`-based online cache. No new data structures needed:
 
 ```rust
-pub struct ServerState {
-    /// Online players with their join timestamps.
-    pub players: Vec<(PlayerName, i64)>,
+/// Tracks player activity state including online status and timestamps.
+#[derive(Clone, Debug)]
+pub struct PlayerActivity {
+    pub player_name: PlayerName,
+    pub last_seen: i64,      // Unix timestamp of last activity
+    pub joined_at: i64,      // Unix timestamp when player joined (0 if offline)
+    pub is_online: bool,     // Current online status
+}
 
-    /// NEW: Recently offline players with their last_seen timestamps.
+pub struct ServerState {
+    /// All tracked players with their activity state.
+    /// Includes both online and recently offline players.
     /// Entries are lazily removed when older than the configured window.
-    pub last_seen: HashMap<PlayerName, i64>,  // Unix timestamp
+    pub player_activity: Vec<PlayerActivity>,
 
     /// Whether this server has synced since backend restart.
     pub synced_since_boot: bool,
@@ -35,62 +42,65 @@ The existing cache structure remains:
 pub type OnlineCache = scc::HashMap<String, ServerState>;  // api_key_hash -> ServerState
 ```
 
-**Why use the existing SCC cache?**
+**Why use the existing SCC cache with a proper struct?**
 - Already thread-safe: `scc::HashMap` provides lock-free concurrent access
-- Per-server isolation: `last_seen` is scoped to each server's `ServerState`
-- No additional data structures: Extends existing architecture naturally
-- Performance: Instant lookups with no database queries or additional locks
-- Simplicity: No separate cache management logic needed
-- Lightweight: Only stores timestamps (~8 bytes per player)
+- Per-server isolation: `player_activity` is scoped to each server's `ServerState`
+- Clean data model: Single `PlayerActivity` struct instead of separate collections
+- Easy filtering: Vec allows simple iteration for online/offline queries
+- No redundant data: One source of truth for each player's state
+- Performance: Linear scan through Vec is fast for typical server sizes (<100 players)
+- Simplicity: No HashMap lookups or synchronization between separate structures
+- Lightweight: ~33 bytes per player (PlayerName + 3×i64 + bool)
 - No persistence needed: Data resets on restart (acceptable for "recent activity")
 
 ### 2. Activity Tracking
 
-**When to update last seen timestamps:**
+**When to update player activity:**
 
 1. **Player joins** (`POST /join`)
-   - Update `last_seen` timestamp to current time
-   - Add player to active players cache
+   - Find existing `PlayerActivity` or create new one
+   - Set `is_online = true`, `joined_at = now`, `last_seen = now`
 
 2. **Player leaves** (`POST /leave`)
-   - Update `last_seen` timestamp to current time
-   - Remove player from active players cache
-   - Keep `last_seen` timestamp in memory for configured window
+   - Find player's `PlayerActivity` entry
+   - Set `is_online = false`, `joined_at = 0`, `last_seen = now`
+   - Entry stays in Vec for configured window (lazy cleanup removes later)
 
 3. **Server sync** (`POST /sync`)
-   - For all players in sync list: update their `last_seen` timestamps
-   - For players in cache but not in sync list: update `last_seen` and mark as offline
+   - For all players in sync list: update their activity (mark online if not already)
+   - For tracked players not in sync: mark as offline (`is_online = false`, `last_seen = now`)
 
 4. **Server disconnection**
-   - Update `last_seen` for all active players on that server
-   - Clear from active players cache
+   - Mark all tracked players as offline
+   - Set `last_seen = now` for all
+   - Entries stay in Vec until lazy cleanup removes them
 
 ### 3. Data Retention & TTL Cleanup
 
 **Retention policy: Configurable time window (default 24 hours)**
 
-**Lazy cleanup strategy (O(1) amortized, not O(n)):**
+**Lazy cleanup strategy:**
 
 Instead of scanning all entries periodically, we remove stale entries **as we access them**:
 
-1. **During queries** (`get_recently_offline()`):
-   - Remove `last_seen` entries older than threshold **while iterating**
-   - Only touches entries we're reading anyway
-   - O(k) where k = entries checked, not O(n) for all players
+1. **During queries** (`get_online_players()`, `get_recently_offline()`):
+   - Filter out `PlayerActivity` entries where `last_seen < threshold`
+   - Use `Vec::retain()` to remove stale entries during iteration
+   - O(n) where n = entries in this server's Vec (typically <100 players)
 
-2. **On player events** (join/leave/sync):
-   - When updating a player's `last_seen`, remove it if it's too old
-   - Natural cleanup during normal operation
+2. **On player updates** (join/leave/sync):
+   - When updating a player, check if `last_seen` is too old
+   - Remove stale entry before adding updated one
 
 This approach:
-- ✅ No O(n) scans of all cached players
 - ✅ No background cleanup tasks needed
-- ✅ Memory naturally bounded by activity rate
-- ✅ Each operation removes stale data for players it touches
+- ✅ Memory naturally bounded by activity rate × window duration
+- ✅ Cleanup happens during normal operations
+- ✅ Linear scan is fast for typical server sizes (<100 players)
 
 **Why 24 hours default?**
 - Covers typical "who was on today" use case
-- Lightweight memory footprint (~8 bytes per player)
+- Lightweight memory footprint (~33 bytes per player)
 - Configurable via environment variable for users who want longer history
 - Lazy cleanup keeps memory usage minimal
 
@@ -100,49 +110,70 @@ This approach:
 
 ```rust
 impl ServerState {
-    /// Update last_seen timestamp for a player.
-    /// Also removes the entry if it's older than the cutoff (lazy cleanup).
-    pub fn update_last_seen(&mut self, player_name: PlayerName, now: i64, cutoff: i64) {
-        // Remove if too old (lazy cleanup)
-        if now < cutoff {
-            self.last_seen.remove(&player_name);
-            return;
+    /// Update or create player activity entry.
+    /// Performs lazy cleanup by removing stale entries during update.
+    pub fn update_player_activity(
+        &mut self,
+        player_name: PlayerName,
+        is_online: bool,
+        now: i64,
+        cutoff: i64,
+    ) {
+        // Lazy cleanup: remove stale entries while searching
+        self.player_activity.retain(|p| p.last_seen >= cutoff);
+
+        // Find existing player or add new entry
+        if let Some(activity) = self.player_activity.iter_mut().find(|p| p.player_name == player_name) {
+            activity.last_seen = now;
+            activity.is_online = is_online;
+            activity.joined_at = if is_online { now } else { 0 };
+        } else {
+            self.player_activity.push(PlayerActivity {
+                player_name,
+                last_seen: now,
+                joined_at: if is_online { now } else { 0 },
+                is_online,
+            });
         }
-        self.last_seen.insert(player_name, now);
+    }
+
+    /// Get currently online players.
+    /// Performs lazy cleanup by removing stale entries.
+    pub fn get_online_players(&mut self, cutoff: i64) -> Vec<PlayerActivity> {
+        // Lazy cleanup while collecting
+        self.player_activity.retain(|p| p.last_seen >= cutoff);
+        self.player_activity.iter()
+            .filter(|p| p.is_online)
+            .cloned()
+            .collect()
     }
 
     /// Get recently offline players (not currently online).
-    /// Removes stale entries older than cutoff during iteration (lazy cleanup).
-    pub fn get_recently_offline(&mut self, cutoff: i64) -> Vec<OfflinePlayerInfo> {
-        let online_players: HashSet<_> = self.players.iter().map(|(n, _)| n).collect();
-
-        // Collect recent offline players and remove stale entries
-        let mut result = Vec::new();
-        self.last_seen.retain(|name, &mut last_seen| {
-            if last_seen < cutoff {
-                false  // Remove stale entry (lazy cleanup)
-            } else if !online_players.contains(name) {
-                result.push(OfflinePlayerInfo { player_name: *name, last_seen });
-                true  // Keep entry
-            } else {
-                true  // Keep entry (player is online)
-            }
-        });
-
-        result
+    /// Performs lazy cleanup by removing stale entries.
+    pub fn get_recently_offline(&mut self, cutoff: i64) -> Vec<PlayerActivity> {
+        // Lazy cleanup while collecting
+        self.player_activity.retain(|p| p.last_seen >= cutoff);
+        self.player_activity.iter()
+            .filter(|p| !p.is_online)
+            .cloned()
+            .collect()
     }
-}
 
-pub struct OfflinePlayerInfo {
-    pub player_name: PlayerName,
-    pub last_seen: i64,  // Unix timestamp
+    /// Get all recent activity (online + offline).
+    pub fn get_all_activity(&mut self, cutoff: i64) -> Vec<PlayerActivity> {
+        // Lazy cleanup
+        self.player_activity.retain(|p| p.last_seen >= cutoff);
+        self.player_activity.clone()
+    }
 }
 ```
 
-**Key optimization:**
-- `update_last_seen()` performs lazy cleanup on single entries
-- `get_recently_offline()` uses `HashMap::retain()` to remove stale entries during iteration
-- No separate O(n) cleanup needed
+**Key benefits:**
+- Single source of truth: `PlayerActivity` struct contains all player state
+- Simple Vec operations: No HashMap lookups or separate data structures
+- Lazy cleanup: `Vec::retain()` removes stale entries during queries
+- Easy filtering: `is_online` flag makes online/offline queries straightforward
+- Clone-friendly: Small struct (~33 bytes) is cheap to copy
 
 ### 5. Discord Commands
 
@@ -179,29 +210,36 @@ No new HTTP endpoints needed. The existing endpoints will be enhanced to update 
 ### 7. Performance Considerations
 
 **Memory overhead:**
-- `last_seen` HashMap entry: ~(16 bytes PlayerName + 8 bytes timestamp) = ~24 bytes per player
-- For 100 unique players in 24h: ~2.4KB per server
+- `PlayerActivity` struct: ~33 bytes (PlayerName:16 + last_seen:8 + joined_at:8 + is_online:1)
+- For 100 unique players in 24h: ~3.3KB per server
 - Stored within existing `ServerState` in SCC cache
 - Lazy cleanup prevents unbounded growth
 - Negligible compared to player skin cache
 
 **Query efficiency:**
-- Timestamp update: O(1) HashMap insert
-- Recent activity query: O(k) where k = `last_seen` entries (bounded by lazy cleanup)
+- Update player activity: O(n) linear search through Vec (n = players on this server)
+- Recent activity query: O(n) where n = tracked players (typically <100)
 - No database I/O required
 - No global locks (SCC HashMap is lock-free)
 - For typical server (100 players): < 1ms query time
 
 **Expected overhead:**
-- Timestamp update on join/leave: < 0.1ms (HashMap insert)
-- Recent activity query with lazy cleanup: < 1ms (in-memory filtering + retain)
-- Memory: ~24 bytes per unique player tracked
+- Player update on join/leave: < 0.5ms (linear search + lazy cleanup)
+- Recent activity query with lazy cleanup: < 1ms (Vec filter + retain)
+- Memory: ~33 bytes per unique player tracked
+
+**Why Vec over HashMap:**
+- Simpler: No key management, single data structure
+- Faster for small n: Linear scan of <100 entries is ~microseconds
+- Better cache locality: Contiguous memory layout
+- Less memory: No hash table overhead
+- Lazy cleanup efficiency: `Vec::retain()` is highly optimized
 
 **Lazy cleanup efficiency:**
 - No O(n) scans across all servers
-- Stale entries removed during normal reads/writes
+- Stale entries removed during normal reads/writes per-server
 - Memory bounded by: `(activity_rate) × (window_duration)`
-- Example: 100 players/day × 24h window = ~2.4KB per server
+- Example: 100 players/day × 24h window = ~3.3KB per server
 
 ### 8. Time Formatting
 
@@ -248,25 +286,33 @@ Examples:
 ## Implementation Plan
 
 ### Phase 1: Cache Layer (Core)
-1. **Extend `ServerState` struct** (oxeye-db/src/cache.rs):
-   - Add `last_seen: HashMap<PlayerName, i64>` field
-   - Implement `update_last_seen()` with lazy cleanup
-   - Implement `get_recently_offline()` with lazy cleanup via `retain()`
-2. **Update `ServerState::new()`** to initialize empty `last_seen` HashMap
-3. **Add unit tests** for:
-   - Last seen tracking
+1. **Define `PlayerActivity` struct** (oxeye-db/src/cache.rs):
+   - Fields: `player_name`, `last_seen`, `joined_at`, `is_online`
+   - Derive `Clone`, `Debug` traits
+2. **Update `ServerState` struct** (oxeye-db/src/cache.rs):
+   - Replace separate player tracking with `player_activity: Vec<PlayerActivity>`
+   - Implement `update_player_activity()` with lazy cleanup
+   - Implement `get_online_players()`, `get_recently_offline()`, `get_all_activity()`
+3. **Update `ServerState::new()`** to initialize empty `player_activity` Vec
+4. **Add unit tests** for:
+   - Player activity tracking (join/leave transitions)
+   - Online/offline filtering
    - Lazy cleanup during queries
    - Stale entry removal
 
 ### Phase 2: Database Layer Integration
-1. **Add helper method** to `Database` (oxeye-db/src/lib.rs):
-   - `get_recently_offline(api_key_hash, window_secs) -> Vec<OfflinePlayerInfo>`
-   - Calls `ServerState::get_recently_offline()` on the cached state
-2. **Modify existing methods** to call `update_last_seen()`:
-   - `player_join()` - update last_seen before adding to online list
-   - `player_leave()` - update last_seen after removing from online list
-   - `sync_players()` - update last_seen for all players in sync
-   - `delete_server_by_api_key()` - last_seen is cleared when server cache entry is removed
+1. **Add helper methods** to `Database` (oxeye-db/src/lib.rs):
+   - `get_online_players(api_key_hash, window_secs) -> Vec<PlayerActivity>`
+   - `get_recently_offline(api_key_hash, window_secs) -> Vec<PlayerActivity>`
+   - Both call corresponding `ServerState` methods
+2. **Refactor existing player tracking methods** to use `PlayerActivity`:
+   - `player_join()` - call `update_player_activity(name, true, now, cutoff)`
+   - `player_leave()` - call `update_player_activity(name, false, now, cutoff)`
+   - `sync_players()` - update all synced players as online, mark missing as offline
+   - `get_server_state()` - return online players from `player_activity` Vec
+3. **Migration strategy**:
+   - Existing `players: Vec<(PlayerName, i64)>` is replaced by filtering `player_activity`
+   - Backward compatible: Online player queries filter `is_online == true`
 
 ### Phase 3: API Integration
 1. **Configuration**: Add `RECENT_ACTIVITY_WINDOW_HOURS` env var to backend
@@ -276,10 +322,12 @@ Examples:
 
 ### Phase 4: Discord Command Enhancement
 1. **Enhance `/oxeye status`** (oxeye-bot):
-   - Call `db.get_recently_offline()` after getting online players
-   - Format as text list: "Last seen (within 24h): • player (Xm ago)"
+   - Call `db.get_online_players()` for online list (replaces existing call)
+   - Call `db.get_recently_offline()` for offline list
+   - Format offline players as text list: "Last seen (within 24h): • player (Xm ago)"
 2. **Add time formatting helper** for human-readable durations
 3. **Ensure no picture changes** for offline players (text only)
+4. **Update existing status display** to work with `PlayerActivity` struct
 
 ### Phase 5: Testing & Polish
 1. Integration tests for activity tracking
@@ -329,14 +377,16 @@ This is a **backward-compatible** addition:
 This design provides a lightweight foundation for tracking recent player activity:
 
 ✅ **Uses existing SCC cache** - extends `ServerState` struct, no new data structures
+✅ **Clean data model** - single `PlayerActivity` struct with all player state
 ✅ **Lock-free concurrency** - leverages existing `scc::HashMap` thread safety
-✅ **Lazy cleanup (not O(n))** - removes stale entries during reads/writes, not periodic scans
-✅ **Per-server isolation** - `last_seen` scoped to each server's state
-✅ **Minimal memory overhead** (~24 bytes per player, bounded by lazy cleanup)
-✅ **Simple last seen timestamps** for each player
+✅ **Lazy cleanup** - removes stale entries during reads/writes, not periodic scans
+✅ **Per-server isolation** - `player_activity` scoped to each server's state
+✅ **Minimal memory overhead** (~33 bytes per player, bounded by lazy cleanup)
+✅ **Simple Vec operations** - no HashMap overhead, better cache locality
+✅ **Complete player state** - timestamps, online status, join time in one struct
 ✅ **Human-readable durations** in Discord embeds
 ✅ **No database changes** required
 ✅ **Backward compatible** with existing functionality
 ✅ **Instant queries** with no I/O overhead
 
-The feature enhances user visibility into recent server activity by naturally extending the existing cache architecture with efficient lazy cleanup.
+The feature enhances user visibility into recent server activity by naturally extending the existing cache architecture with a clean struct-based design and efficient lazy cleanup.
