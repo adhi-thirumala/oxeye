@@ -45,9 +45,32 @@ pub(crate) struct LeaveRequest {
     player: PlayerName,
 }
 
+/// Sync request - replace the full player list for a server.
+/// Each entry may include an optional texture_hash so the backend can keep
+/// `player_skins` mappings up to date and request uploads for unknown skins.
 #[derive(Deserialize)]
 pub(crate) struct SyncRequest {
-    players: Vec<PlayerName>,
+    players: Vec<SyncPlayer>,
+}
+
+#[derive(Deserialize)]
+pub(crate) struct SyncPlayer {
+    player: PlayerName,
+    #[serde(default)]
+    texture_hash: Option<String>,
+}
+
+#[derive(Serialize)]
+pub(crate) struct SyncMissingSkin {
+    player: PlayerName,
+    texture_hash: String,
+}
+
+#[derive(Serialize)]
+pub(crate) struct SyncResponse {
+    /// Players whose texture_hash is not yet known to the backend.
+    /// The mod should follow up with /skin uploads for each.
+    missing: Vec<SyncMissingSkin>,
 }
 
 /// Skin upload request - sent when backend returns 202 from /join.
@@ -188,19 +211,48 @@ pub(crate) async fn sync(
     Json(payload): Json<SyncRequest>,
 ) -> Result<impl IntoResponse, AppError> {
     #[cfg(debug_assertions)]
-    tracing::debug!(players = ?payload.players, count = payload.players.len(), "sync request");
+    tracing::debug!(count = payload.players.len(), "sync request");
 
-    // Validate player list (already deserialized into Vec<PlayerName>, check size and content)
-    validation::validate_player_list(&payload.players)?;
+    // Validate player names + optional texture hashes
+    let player_names: Vec<PlayerName> =
+        payload.players.iter().map(|p| p.player).collect();
+    validation::validate_player_list(&player_names)?;
+    for p in &payload.players {
+        if let Some(ref hash) = p.texture_hash {
+            validation::validate_texture_hash(hash)?;
+        }
+    }
 
     let api_key = auth.token().to_string();
     let api_key_hash = crate::helpers::hash_api_key(&api_key);
     let api_key_hash_clone = api_key_hash.clone();
 
+    // Replace the player list for this server.
     state
         .db
-        .sync_players(api_key_hash, payload.players, now())
+        .sync_players(api_key_hash, player_names, now())
         .await?;
+
+    // For each player that reported a skin, either update the player->skin
+    // mapping (if the skin is already stored) or flag it as missing so the
+    // mod can follow up with a /skin upload.
+    let mut missing: Vec<SyncMissingSkin> = Vec::new();
+    for p in payload.players {
+        let Some(texture_hash) = p.texture_hash else {
+            continue;
+        };
+        if state.db.skin_exists(&texture_hash).await? {
+            state
+                .db
+                .update_player_skin(p.player.as_str(), &texture_hash, now())
+                .await?;
+        } else {
+            missing.push(SyncMissingSkin {
+                player: p.player,
+                texture_hash,
+            });
+        }
+    }
 
     // Spawn async task to regenerate composite image
     let db = state.db.clone();
@@ -210,7 +262,7 @@ pub(crate) async fn sync(
         }
     });
 
-    Ok(StatusCode::OK)
+    Ok((StatusCode::OK, Json(SyncResponse { missing })))
 }
 
 #[debug_handler]

@@ -112,7 +112,11 @@ public class OxeyeCommands {
 
     // Get current players and sync
     var players = OxeyeEvents.getCurrentServer().getPlayerList().getPlayers()
-        .stream().map(p -> p.getName().getString()).toList();
+        .stream()
+        .map(p -> new SyncManager.PlayerWithSkin(
+            p.getName().getString(),
+            SkinUtil.extractSkinInfo(p.getGameProfile()).orElse(null)))
+        .toList();
 
     source.sendSuccess(() -> Component.literal("Syncing " + players.size() + " player(s)..."), false);
 

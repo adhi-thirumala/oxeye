@@ -13,7 +13,10 @@ public class SyncManager {
   private static volatile String lastSyncedBootId = null;
   private static volatile boolean needsSync = true;
 
-  public static CompletableFuture<Void> sync(List<String> players) {
+  /** A player to be included in a sync, with optional skin information. */
+  public record PlayerWithSkin(String name, SkinUtil.SkinInfo skin) {}
+
+  public static CompletableFuture<Void> sync(List<PlayerWithSkin> players) {
     syncing.set(true);
     OxeyeMod.LOGGER.info("Sync started, blocking join/leave events");
 

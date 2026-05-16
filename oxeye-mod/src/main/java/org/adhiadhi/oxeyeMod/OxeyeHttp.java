@@ -7,6 +7,8 @@ import java.net.URISyntaxException;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.CompletableFuture;
@@ -143,9 +145,63 @@ public class OxeyeHttp {
   // Player events (fire-and-forget, uses stored API key)
   // ========================================================================
 
-  public static CompletableFuture<Void> sendSyncRequest(List<String> playerNames) throws URISyntaxException {
-    OxeyeMod.LOGGER.info("Sending sync request for players: " + String.join(", ", playerNames));
-    return postAuthenticatedWithFuture("/sync", GSON.toJson(Map.of("players", playerNames)));
+  public static CompletableFuture<Void> sendSyncRequest(List<SyncManager.PlayerWithSkin> players) throws URISyntaxException {
+    OxeyeMod.LOGGER.info("Sending sync request for " + players.size() + " player(s)");
+
+    // Build payload: [{ "player": name, "texture_hash"?: hash }, ...]
+    List<Map<String, String>> entries = new ArrayList<>(players.size());
+    // Keep a name -> SkinInfo map so we can upload any skins the backend reports missing.
+    Map<String, SkinUtil.SkinInfo> skinByName = new HashMap<>();
+    for (SyncManager.PlayerWithSkin p : players) {
+      Map<String, String> entry = new HashMap<>();
+      entry.put("player", p.name());
+      if (p.skin() != null) {
+        entry.put("texture_hash", p.skin().textureHash);
+        skinByName.put(p.name(), p.skin());
+      }
+      entries.add(entry);
+    }
+    String jsonBody = GSON.toJson(Map.of("players", entries));
+
+    OxeyeConfig config = OxeyeMod.CONFIG;
+    URI uri = getBaseUri().resolve("/sync");
+    HttpRequest req = HttpRequest.newBuilder()
+        .uri(uri)
+        .header("Content-Type", "application/json")
+        .header("Authorization", "Bearer " + config.getApiToken())
+        .POST(HttpRequest.BodyPublishers.ofString(jsonBody))
+        .build();
+
+    return client.sendAsync(req, HttpResponse.BodyHandlers.ofString())
+        .thenAccept(response -> {
+          checkBootIdChange(response);
+          if (response.statusCode() < 200 || response.statusCode() >= 300) {
+            OxeyeMod.LOGGER.error("Sync request failed: " + parseErrorMessage(response));
+            return;
+          }
+
+          OxeyeMod.LOGGER.info("Sync request succeeded");
+
+          // Upload any skins the backend doesn't have yet.
+          try {
+            SyncResponse parsed = GSON.fromJson(response.body(), SyncResponse.class);
+            if (parsed == null || parsed.missing == null || parsed.missing.isEmpty()) {
+              return;
+            }
+            OxeyeMod.LOGGER.info("Backend requested " + parsed.missing.size() + " skin upload(s)");
+            for (SyncMissingSkin missing : parsed.missing) {
+              SkinUtil.SkinInfo info = skinByName.get(missing.player);
+              if (info == null || !info.textureHash.equals(missing.texture_hash)) {
+                OxeyeMod.LOGGER.warn("Backend requested skin for " + missing.player +
+                    " but no matching skin info available");
+                continue;
+              }
+              uploadSkinData(missing.player, info);
+            }
+          } catch (Exception e) {
+            OxeyeMod.LOGGER.error("Failed to parse sync response: " + e.getMessage());
+          }
+        });
   }
 
   public static CompletableFuture<String> sendConnectRequest(String code) throws URISyntaxException {
@@ -322,5 +378,14 @@ public class OxeyeHttp {
 
   private static class ConnectResponse {
     String api_key;
+  }
+
+  private static class SyncResponse {
+    List<SyncMissingSkin> missing;
+  }
+
+  private static class SyncMissingSkin {
+    String player;
+    String texture_hash;
   }
 }

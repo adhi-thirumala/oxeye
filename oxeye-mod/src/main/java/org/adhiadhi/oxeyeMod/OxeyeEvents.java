@@ -22,8 +22,11 @@ public class OxeyeEvents {
     
     // If backend restarted (boot ID changed), auto-sync first
     if (SyncManager.needsSync() && !SyncManager.isSyncing()) {
-      List<String> currentPlayers = minecraftServer.getPlayerList().getPlayers().stream()
-          .map(player -> player.getName().getString()).toList();
+      List<SyncManager.PlayerWithSkin> currentPlayers = minecraftServer.getPlayerList().getPlayers().stream()
+          .map(player -> new SyncManager.PlayerWithSkin(
+              player.getName().getString(),
+              SkinUtil.extractSkinInfo(player.getGameProfile()).orElse(null)))
+          .toList();
       SyncManager.sync(currentPlayers);
     }
     
@@ -41,12 +44,15 @@ public class OxeyeEvents {
     currentServer = minecraftServer;
     OxeyeMod.LOGGER.info("Server started, sending sync request");
     SyncManager.sync(minecraftServer.getPlayerList().getPlayers().stream()
-        .map(player -> player.getName().getString()).toList());
+        .map(player -> new SyncManager.PlayerWithSkin(
+            player.getName().getString(),
+            SkinUtil.extractSkinInfo(player.getGameProfile()).orElse(null)))
+        .toList());
   }
 
   public static void onServerStopped(MinecraftServer minecraftServer) {
     OxeyeMod.LOGGER.info("Server stopped");
-    SyncManager.sync(List.of());
+    SyncManager.sync(List.<SyncManager.PlayerWithSkin>of());
     currentServer = null;
   }
 
