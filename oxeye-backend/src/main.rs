@@ -94,20 +94,34 @@ async fn main() {
             },
             ..Default::default()
         })
-        .setup(move |ctx, _ready, framework| {
-            let public_url = config.public_url.clone();
-            Box::pin(async move {
-                poise::builtins::register_globally(ctx, &framework.options().commands).await?;
-                Ok(Data {
-                    db: db.clone(),
-                    public_url,
-                })
-            })
-        })
         .build();
 
-    let mut client = serenity::ClientBuilder::new(&config.discord_token.unwrap(), intents)
-        .framework(framework)
+    let token: serenity::Token = config
+        .discord_token
+        .unwrap()
+        .parse()
+        .expect("DISCORD_TOKEN is not a valid Discord bot token");
+
+    // poise 0.7 dropped the framework setup hook, so register commands over HTTP
+    // before starting the gateway instead of on the first Ready event. The
+    // application id is normally filled in by the shard manager on Ready, so
+    // fetch it here first.
+    let http = serenity::Http::new(token.clone());
+    let application = http
+        .get_current_application_info()
+        .await
+        .expect("Error fetching Discord application info");
+    http.set_application_id(application.id);
+    poise::builtins::register_globally(&http, &framework.options().commands)
+        .await
+        .expect("Error registering Discord commands");
+
+    let mut client = serenity::ClientBuilder::new(token, intents)
+        .data(std::sync::Arc::new(Data {
+            db: db.clone(),
+            public_url: config.public_url.clone(),
+        }))
+        .framework(Box::new(framework))
         .await
         .expect("Error creating Discord client");
     tokio::select! {

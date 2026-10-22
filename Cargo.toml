@@ -36,7 +36,10 @@ tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.22", features = ["env-filter"] }
 
 # Discord
-poise = "0.6.1"
+# Pinned to serenity `next` until a crates.io release updates tokio-tungstenite
+# (rustls 0.22 -> rustls-webpki 0.102.x, GHSA-82j2-j2ch-gfr8).
+# https://github.com/serenity-rs/serenity/issues/3622
+poise = { git = "https://github.com/serenity-rs/poise.git", branch = "serenity-next" }
 
 
 # special data structures

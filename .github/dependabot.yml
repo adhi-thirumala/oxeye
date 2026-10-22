@@ -1,0 +1,40 @@
+# Scheduled version updates only. Emergency patches come from Dependabot
+# security updates (a repository setting, not this file): they are triggered
+# by a published advisory, open immediately, and ignore both
+# schedule.interval and cooldown. Keep this file's schedule conservative.
+version: 2
+
+updates:
+  # Rust workspace (Cargo.toml + Cargo.lock at repo root)
+  - package-ecosystem: cargo
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      rust-minor-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+    commit-message:
+      prefix: "deps"
+    labels:
+      - dependencies
+      - rust
+
+  # GitHub Actions used in .github/workflows
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 5
+    groups:
+      actions-minor-patch:
+        patterns: ["*"]
+        update-types: ["minor", "patch"]
+    commit-message:
+      prefix: "ci"
+    labels:
+      - dependencies
+      - ci

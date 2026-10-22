@@ -8,11 +8,14 @@ use poise::serenity_prelude::{CreateEmbed, CreateEmbedFooter};
 pub(crate) type Error = Box<dyn std::error::Error + Send + Sync>;
 
 /// Autocomplete function for server names - suggests servers from current guild
-async fn autocomplete_server_name(ctx: Context<'_>, partial: &str) -> Vec<String> {
+async fn autocomplete_server_name<'a>(
+    ctx: Context<'a>,
+    partial: &'a str,
+) -> poise::serenity_prelude::CreateAutocompleteResponse<'a> {
     // Get guild_id from context
     let guild_id = match ctx.guild_id() {
         Some(id) => id.get(),
-        None => return Vec::new(),
+        None => return Default::default(),
     };
 
     // Fetch servers for this guild
@@ -24,12 +27,15 @@ async fn autocomplete_server_name(ctx: Context<'_>, partial: &str) -> Vec<String
         .unwrap_or_default();
 
     // Filter server names by partial input (case-insensitive)
-    servers
+    let choices: Vec<_> = servers
         .into_iter()
         .map(|s| s.name)
         .filter(|name| name.to_lowercase().contains(&partial.to_lowercase()))
         .take(25)
-        .collect::<Vec<_>>()
+        .map(poise::serenity_prelude::AutocompleteChoice::from)
+        .collect();
+
+    poise::serenity_prelude::CreateAutocompleteResponse::new().set_choices(choices)
 }
 
 /// Generate a one-time code to link a Minecraft server to this Discord server
@@ -136,7 +142,7 @@ pub async fn status(
             if !base_url.is_empty() {
                 let image_url = format!("{}/status-image/{}.png?t={}", base_url, hash, now());
                 tracing::info!("Generated status image URL: {}", image_url);
-                embed = embed.image(image_url);
+                embed = embed.image(image_url, None);
             }
         }
     }
