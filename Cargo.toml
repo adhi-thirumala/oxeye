@@ -52,4 +52,4 @@ imageproc = "0.25"
 ab_glyph = "0.2"
 
 # Encoding
-base64 = "0.22"
+base64 = "0.23"
