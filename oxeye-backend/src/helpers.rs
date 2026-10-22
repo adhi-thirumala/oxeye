@@ -11,8 +11,15 @@ pub fn generate_api_key() -> String {
     format!("oxeye-sk-{}", Alphanumeric.sample_string(&mut rng(), 32))
 }
 
+/// Lowercase hex SHA-256 of the key. Output format must stay stable: stored hashes are looked up by it.
 pub fn hash_api_key(key: &str) -> String {
-    format!("{:x}", Sha256::digest(key.as_bytes()))
+    use std::fmt::Write;
+    let digest = Sha256::digest(key.as_bytes());
+    let mut out = String::with_capacity(digest.len() * 2);
+    for b in digest.iter() {
+        write!(out, "{b:02x}").expect("writing to String cannot fail");
+    }
+    out
 }
 
 pub fn now() -> i64 {
