@@ -7,6 +7,7 @@ edition = "2024"
 arrayvec = { workspace = true }
 scc = { workspace = true }
 tokio-rusqlite = { workspace = true }
+rusqlite = { workspace = true }
 thiserror = { workspace = true }
 tracing = { workspace = true }
 

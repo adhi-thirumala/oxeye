@@ -21,6 +21,8 @@ tower-http = { version = "0.7.1", features = ["cors", "trace", "limit", "timeout
 
 # Database
 tokio-rusqlite = { version = "0.8", features = ["bundled"]}
+# tokio-rusqlite doesn't forward `fallible_uint`; needed for u64 ToSql/FromSql (guild IDs).
+rusqlite = { version = "0.40", features = ["fallible_uint"] }
 oxeye-db = { path = "oxeye-db" }
 
 # Serialization
