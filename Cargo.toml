@@ -48,7 +48,7 @@ arrayvec = "0.7.6"
 
 # Image processing (for skin rendering)
 image = { version = "0.25", default-features = false, features = ["png"] }
-imageproc = "0.25"
+imageproc = "0.27"
 ab_glyph = "0.2"
 
 # Encoding
